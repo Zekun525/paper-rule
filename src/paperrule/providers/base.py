@@ -27,3 +27,4 @@ class FakeProvider(AIProvider):
             text=f"已记录讨论意见（离线 FakeProvider）：{latest}",
             provider=self.name, model="deterministic",
         )
+

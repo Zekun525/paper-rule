@@ -124,12 +124,22 @@ def check(file: Path):
 
 @regression_app.command("run")
 def regression_run(paper: str = typer.Option("")):
-    print("No regression cases are configured. Semantic checks were not run.")
+    from paperrule.review.regression import run_stored_cases
+    try:
+        report = run_stored_cases(get_store(), paper)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    typer.echo(json.dumps(report, ensure_ascii=False, indent=2))
 
 
 @regression_app.command("report")
 def regression_report(latest: bool = typer.Option(False)):
-    print("No regression runs recorded.")
+    from paperrule.review.regression import reports
+    recorded = reports(get_store())
+    if latest:
+        typer.echo(json.dumps(recorded[0] if recorded else None, ensure_ascii=False, indent=2))
+    else:
+        typer.echo(json.dumps(recorded, ensure_ascii=False, indent=2))
 
 
 @sync_app.command("status")

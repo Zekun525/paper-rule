@@ -5,6 +5,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from paperrule.domain.models import PaperProfile, RuleRecord
+from paperrule.governance.discussion import discuss_with_provider
 from paperrule.governance.service import ConflictError, Governance, GovernanceError
 from paperrule.persistence.store import MemoryStore
 from paperrule.retrieval.context import build_context
@@ -74,9 +75,11 @@ def create_app(root: Path | None = None) -> FastAPI:
     @app.post("/api/proposals/{proposal_id}/chat")
     def chat(proposal_id: str, body: ChatInput):
         try:
-            return gov.discuss(proposal_id, body.message, body.revised)
+            return discuss_with_provider(gov, proposal_id, body.message, body.revised)
         except GovernanceError as exc:
             raise HTTPException(409, str(exc))
+        except (OSError, ValueError) as exc:
+            raise HTTPException(404, "Proposal not found") from exc
 
     @app.post("/api/proposals/{proposal_id}/approve")
     def approve(proposal_id: str, body: ApprovalInput):

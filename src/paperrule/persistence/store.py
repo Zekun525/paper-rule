@@ -21,6 +21,7 @@ from paperrule.domain.models import (
     SourceRecord,
     digest,
 )
+from paperrule.persistence.index import SearchIndex
 
 T = TypeVar("T", bound=BaseModel)
 _LOCKS: dict[str, threading.RLock] = {}
@@ -43,6 +44,7 @@ class MemoryStore:
     def __init__(self, root: Path):
         self.root = root.expanduser().resolve()
         self._mutex = _LOCKS.setdefault(str(self.root), threading.RLock())
+        self.index = SearchIndex(self.root)
 
     @contextmanager
     def locked(self):
@@ -115,6 +117,18 @@ class MemoryStore:
     def rules(self) -> list[RuleRecord]:
         return [r for folder in self.folders if folder.startswith("rules/")
                 for r in self._all(folder, RuleRecord)]
+
+    def rebuild_index(self) -> int:
+        records = []
+        records.extend({"kind": "rule", "record_id": r.id, "title": r.short_title,
+                        "body": r.statement + " " + r.rationale} for r in self.rules())
+        records.extend({"kind": "feedback", "record_id": f.id, "title": f.classification.value,
+                        "body": f.quote} for f in self.feedback())
+        return self.index.rebuild(records)
+
+    def search(self, query: str, *, kind: str | None = None, limit: int = 50) -> list[dict]:
+        self.rebuild_index()
+        return self.index.search(query, kind=kind, limit=limit)
 
     def rule(self, rule_id: str) -> RuleRecord | None:
         return next((r for r in self.rules() if r.id == rule_id), None)
