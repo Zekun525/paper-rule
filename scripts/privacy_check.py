@@ -1,6 +1,6 @@
-from pathlib import Path
 import re
 import sys
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 BAD = [re.compile(r"gh[pousr]_[A-Za-z0-9_]{20,}"),
