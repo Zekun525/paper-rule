@@ -99,11 +99,14 @@ def create_app(root: Path | None = None) -> FastAPI:
 
     @app.post("/api/proposals/{proposal_id}/defer")
     def defer(proposal_id: str):
-        p = store.proposal(proposal_id)
-        from paperrule.domain.models import ProposalStatus
-        p.status = ProposalStatus.DEFERRED
-        store.save_proposal(p)
-        return p
+        try:
+            return gov.decide(proposal_id, "defer")
+        except ConflictError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except GovernanceError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except (OSError, ValueError) as exc:
+            raise HTTPException(404, "Proposal not found") from exc
 
     class ContextInput(BaseModel):
         paper_id: str
@@ -132,6 +135,8 @@ def create_app(root: Path | None = None) -> FastAPI:
 
     from paperrule.api.operations import register_operations
     register_operations(app, store, gov)
+    from paperrule.api.regression import register_regression
+    register_regression(app, store)
     return app
 
 

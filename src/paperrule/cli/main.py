@@ -58,7 +58,7 @@ def ingest(path: Path, paper: str | None = typer.Option(None), reviewer: str = t
            kind: str = typer.Option("text")):
     kwargs = {"reviewer_id": reviewer, "paper_id": paper, "reviewer_role": "other"}
     if path.exists():
-        items = ingest_file(path, get_store(), **kwargs)
+        items = ingest_file(path, get_store(), source_kind=kind, **kwargs)
     else:
         raise typer.BadParameter("Input file does not exist")
     print(f"Imported {len(items)} feedback items; all require review before becoming rules")
@@ -78,7 +78,7 @@ def rules_search(query: str):
 
 @rule_app.command("history")
 def rules_history(rule_id: str):
-    print(json.dumps([r.model_dump(mode="json") for r in get_store().rules() if r.id == rule_id], ensure_ascii=False, indent=2))
+    print(json.dumps([r.model_dump(mode="json") for r in get_store().history(rule_id)], ensure_ascii=False, indent=2))
 
 
 @proposal_app.command("list")
@@ -144,17 +144,20 @@ def regression_report(latest: bool = typer.Option(False)):
 
 @sync_app.command("status")
 def sync_status():
-    print("Local-only mode; no remote configured")
+    from paperrule.sync.git import GitSync
+    print(json.dumps(GitSync(get_store().root).status(), ensure_ascii=False, indent=2))
 
 
 @sync_app.command("push")
 def sync_push():
-    raise typer.BadParameter("No private Git remote configured; local approved data remains available")
+    from paperrule.sync.git import GitSync
+    print(json.dumps(GitSync(get_store().root).push(), ensure_ascii=False, indent=2))
 
 
 @sync_app.command("pull")
 def sync_pull():
-    raise typer.BadParameter("No private Git remote configured")
+    from paperrule.sync.git import GitSync
+    print(json.dumps(GitSync(get_store().root).pull(), ensure_ascii=False, indent=2))
 
 
 @app.command("app")
