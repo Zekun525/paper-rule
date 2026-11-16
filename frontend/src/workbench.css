@@ -1,0 +1,17 @@
+.workbench label{display:grid;gap:5px;margin:10px 0;color:#4b5e57;font-size:13px}
+.workbench input,.workbench textarea,.workbench select{width:100%;padding:9px;border:1px solid #cddbd4;border-radius:5px;font:inherit;background:#fff;color:#20362d}
+.workbench textarea{resize:vertical;min-height:72px}.workbench button{font:inherit;cursor:pointer}
+.workbench main button{padding:8px 12px;margin:4px 4px 4px 0;border:1px solid #ccd9d3;border-radius:5px;background:white;color:#245c4d}
+.workbench button:disabled{opacity:.5;cursor:wait}.workbench button.primary{background:#246b5e;color:white;border-color:#246b5e}
+.page-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:18px;padding-top:22px;align-items:start}
+.approval-grid{display:grid;grid-template-columns:minmax(190px,.65fr) minmax(300px,1.3fr) minmax(270px,1fr);gap:18px;padding-top:22px;align-items:start}
+.panel{background:#fff;border:1px solid #dce6df;border-radius:8px;padding:20px;min-width:0;overflow-wrap:anywhere;margin-top:16px}
+.panel h2{font-size:16px;margin-bottom:14px}.panel h3{font-size:15px}.panel p{white-space:pre-wrap}
+.workbench .record{display:block;width:100%;text-align:left;margin-bottom:8px;padding:12px}.record b,.record small,.evidence small{display:block}
+.record small,.muted{color:#6d7c74;font-size:12px}.workbench .chosen{border-color:#43846c;background:#f0f7f3}.evidence{border-top:1px solid #e0e9e3;padding:15px 0}
+.evidence blockquote{margin:12px 0;padding:10px 12px;background:#f5f8f6;border-left:3px solid #8fbaaa;white-space:pre-wrap}
+.actions{display:flex;flex-wrap:wrap;align-items:center;gap:10px}.actions a{color:#246b5e}
+.warning{background:#fff4d6;padding:8px;border-radius:4px}.pdf-preview{width:100%;height:auto}.diff{white-space:pre-wrap;overflow:auto;max-height:360px;background:#f3f6f4;padding:12px;font-size:12px}
+.workbench details{margin:14px 0}.workbench summary{cursor:pointer;color:#286a54}.dropzone{padding:20px;border:1px dashed #80a995;background:#f5faf7}
+@media(max-width:1100px){.approval-grid{grid-template-columns:1fr 1.5fr}.approval-grid>.panel:last-child{grid-column:1/-1}}
+@media(max-width:650px){.approval-grid{grid-template-columns:1fr}.approval-grid>.panel:last-child{grid-column:auto}.workbench nav{grid-template-columns:repeat(3,1fr)}.panel{padding:14px}}

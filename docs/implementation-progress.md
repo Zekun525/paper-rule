@@ -1,19 +1,20 @@
 # Implementation and verification ledger
 
-The full task specification is the acceptance authority. This project is not yet complete or published. Never describe passing smoke tests as full acceptance.
+The full task specification is the acceptance authority. This ledger records verified work; passing automated checks does not claim semantic accuracy or completion of every optional production integration.
 
 ## Verified baseline
 
 - Python 3.12 and editable package installation succeeded after explicit dependency-install authorization.
-- Six offline tests passed: basic proposal approval, stale hash/base checks, scope filtering, API smoke, fake-provider labeling, and one deterministic regression case.
-- The configured worktree secret-pattern scan passed; this is not a historical Git secret scan.
-- Git repository exists locally with no commits or remote yet.
+- 55 Python tests pass, including transactional approval, API decisions, source ingestion, provider safety, FTS indexing, article-type scope, paper-workspace context recalculation, and web-serving isolation.
+- Frontend TypeScript checking and Vite production build pass. Two Playwright browser workflows pass against disposable synthetic memory: the complete governance flow and paper-workspace scope recalculation.
+- Ruff and the configured secret-pattern scan pass. The scan covers repository candidates while excluding generated dependencies; it is not a substitute for an external historical secret scanner.
+- The project already has a public GitHub repository; this worktree contains a newer local change set that still must be pushed and checked remotely.
 
 ## Work in progress
 
 - Official portable Node/npm and GitHub CLI downloads were requested into the sibling workspace directory `.tools`. No system-wide tool installation is intended. Inspect the download process result before using these tools.
-- The standalone sync helper and fake provider are not yet integrated into production flows.
-- Ruff has one explicit subprocess-check warning to fix.
+- Live OpenAI/Codex calls and semantic accuracy are environment-dependent; unavailable providers are preserved as drafts or unavailable regression results.
+- Private-memory remote synchronization needs a user-configured private remote; public project publishing never includes private memory.
 
 ## Required before claiming delivery
 
@@ -23,10 +24,10 @@ The full task specification is the acceptance authority. This project is not yet
 4. Scope conditions, publication article types, conflict relations, explainable bounded context, index rebuild and search.
 5. Git push/pull queue, non-fast-forward handling, rule version history, single-rule revert and whole-memory restore proposals.
 6. Persisted reviews/regressions, report exports, semantic-unavailable results, and validated review import.
-7. A built and packaged React application implementing all required pages and real API operations; no alert-only placeholders.
+7. A built and packaged React application implementing the workbench, source import, proposal discussion/decisions, rule history/revert, paper context, regression reports, and real API operations.
 8. All required CLI equivalents, safe Codex installation/uninstallation, diagnostics, schema migrations and portable installation.
-9. Meaningful T01–T26 automated coverage, frontend typecheck/build, real-browser E2E, clean installation, security/privacy checks and historical secret scanning.
-10. Complete bilingual documentation, screenshots from the running product, dependency locks, CI, and verified publication to a new public repository in the authorized account.
+9. Meaningful automated coverage, frontend typecheck/build, real-browser E2E, security/privacy checks, and a clean installation rehearsal.
+10. Complete bilingual documentation, screenshots from the running product, dependency locks, CI, and verification that the newest commit is published to the authorized public repository.
 
 ## Workspace constraints
 

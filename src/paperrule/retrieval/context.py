@@ -9,6 +9,8 @@ def applies(rule: RuleRecord, paper: PaperProfile, section: str = "", task: str 
         return False, "research type mismatch"
     if scope.venues and paper.venue not in scope.venues:
         return False, "publication mismatch"
+    if scope.article_types and paper.article_type not in scope.article_types:
+        return False, "article type mismatch"
     if scope.sections and section not in scope.sections:
         return False, "section not included"
     if scope.task_types and task not in scope.task_types:

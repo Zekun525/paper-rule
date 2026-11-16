@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from paperrule.domain.models import PaperProfile, RuleRecord
 from paperrule.governance.discussion import discuss_with_provider
@@ -11,7 +11,7 @@ from paperrule.persistence.store import MemoryStore
 from paperrule.retrieval.context import build_context
 
 
-def create_app(root: Path | None = None) -> FastAPI:
+def create_app(root: Path | None = None, web_root: Path | None = None) -> FastAPI:
     store = MemoryStore(root or Path(os.environ.get("PAPERRULE_MEMORY", Path.home() / ".local/share/paperrule/memory")))
     store.initialize()
     gov = Governance(store)
@@ -40,7 +40,11 @@ def create_app(root: Path | None = None) -> FastAPI:
 
     @app.post("/api/papers")
     def add_paper(paper: PaperProfile):
-        store.save_paper(paper)
+        try:
+            with store.locked():
+                store.save_paper(paper)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
         return paper
 
     @app.get("/api/rules")
@@ -72,6 +76,9 @@ def create_app(root: Path | None = None) -> FastAPI:
     class ApprovalInput(BaseModel):
         proposal_hash: str
 
+    class DecisionInput(BaseModel):
+        reason: str = Field(default="", max_length=10000)
+
     @app.post("/api/proposals/{proposal_id}/chat")
     def chat(proposal_id: str, body: ChatInput):
         try:
@@ -91,16 +98,20 @@ def create_app(root: Path | None = None) -> FastAPI:
             raise HTTPException(400, str(exc))
 
     @app.post("/api/proposals/{proposal_id}/reject")
-    def reject(proposal_id: str):
+    def reject(proposal_id: str, body: DecisionInput | None = None):
         try:
-            return gov.reject(proposal_id)
+            return gov.decide(proposal_id, "reject", reason=body.reason if body else "")
+        except ConflictError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except GovernanceError as exc:
+            raise HTTPException(400, str(exc)) from exc
         except (OSError, ValueError) as exc:
-            raise HTTPException(404, str(exc))
+            raise HTTPException(404, "Proposal not found") from exc
 
     @app.post("/api/proposals/{proposal_id}/defer")
-    def defer(proposal_id: str):
+    def defer(proposal_id: str, body: DecisionInput | None = None):
         try:
-            return gov.decide(proposal_id, "defer")
+            return gov.decide(proposal_id, "defer", reason=body.reason if body else "")
         except ConflictError as exc:
             raise HTTPException(409, str(exc)) from exc
         except GovernanceError as exc:
@@ -118,7 +129,9 @@ def create_app(root: Path | None = None) -> FastAPI:
         paper = next((p for p in store.papers() if p.paper_id == body.paper_id), None)
         if paper is None:
             raise HTTPException(404, "Paper not found")
-        return build_context(store.rules(), paper, body.section, body.task)
+        bundle = build_context(store.rules(), paper, body.section, body.task)
+        bundle["memory_commit"] = gov.git.head() or None
+        return bundle
 
     @app.get("/api/regression")
     def regression():
@@ -137,6 +150,8 @@ def create_app(root: Path | None = None) -> FastAPI:
     register_operations(app, store, gov)
     from paperrule.api.regression import register_regression
     register_regression(app, store)
+    from paperrule.api.web import register_web
+    register_web(app, web_root)
     return app
 
 
