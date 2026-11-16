@@ -1,0 +1,134 @@
+import os
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+
+from paperrule.domain.models import PaperProfile, RuleRecord
+from paperrule.governance.service import ConflictError, Governance, GovernanceError
+from paperrule.persistence.store import MemoryStore
+from paperrule.retrieval.context import build_context
+
+
+def create_app(root: Path | None = None) -> FastAPI:
+    store = MemoryStore(root or Path(os.environ.get("PAPERRULE_MEMORY", Path.home() / ".local/share/paperrule/memory")))
+    store.initialize()
+    gov = Governance(store)
+    app = FastAPI(title="PaperRule", version="0.1.0", description="Local-first approved writing rules")
+
+    @app.get("/api/health")
+    def health():
+        return {"status": "ok", "memory_path": str(store.root)}
+
+    @app.get("/api/sources")
+    def sources():
+        return store.sources()
+
+    @app.get("/api/feedback")
+    def feedback():
+        return store.feedback()
+
+    @app.get("/api/reviewers")
+    def reviewers():
+        return sorted({f.reviewer_id: {"reviewer_id": f.reviewer_id, "role": f.reviewer_role}
+                       for f in store.feedback()}.values(), key=lambda x: x["reviewer_id"])
+
+    @app.get("/api/papers")
+    def papers():
+        return store.papers()
+
+    @app.post("/api/papers")
+    def add_paper(paper: PaperProfile):
+        store.save_paper(paper)
+        return paper
+
+    @app.get("/api/rules")
+    def rules():
+        return store.rules()
+
+    @app.get("/api/rules/{rule_id}/history")
+    def history(rule_id: str):
+        rule = store.rule(rule_id)
+        if rule is None:
+            raise HTTPException(404, "Rule not found")
+        return store.history(rule_id)
+
+    @app.get("/api/proposals")
+    def proposals():
+        return store.proposals()
+
+    @app.get("/api/proposals/{proposal_id}")
+    def proposal(proposal_id: str):
+        try:
+            return store.proposal(proposal_id)
+        except (OSError, ValueError):
+            raise HTTPException(404, "Proposal not found")
+
+    class ChatInput(BaseModel):
+        message: str
+        revised: RuleRecord | None = None
+
+    class ApprovalInput(BaseModel):
+        proposal_hash: str
+
+    @app.post("/api/proposals/{proposal_id}/chat")
+    def chat(proposal_id: str, body: ChatInput):
+        try:
+            return gov.discuss(proposal_id, body.message, body.revised)
+        except GovernanceError as exc:
+            raise HTTPException(409, str(exc))
+
+    @app.post("/api/proposals/{proposal_id}/approve")
+    def approve(proposal_id: str, body: ApprovalInput):
+        try:
+            return gov.approve(proposal_id, body.proposal_hash)
+        except ConflictError as exc:
+            raise HTTPException(409, str(exc))
+        except GovernanceError as exc:
+            raise HTTPException(400, str(exc))
+
+    @app.post("/api/proposals/{proposal_id}/reject")
+    def reject(proposal_id: str):
+        try:
+            return gov.reject(proposal_id)
+        except (OSError, ValueError) as exc:
+            raise HTTPException(404, str(exc))
+
+    @app.post("/api/proposals/{proposal_id}/defer")
+    def defer(proposal_id: str):
+        p = store.proposal(proposal_id)
+        from paperrule.domain.models import ProposalStatus
+        p.status = ProposalStatus.DEFERRED
+        store.save_proposal(p)
+        return p
+
+    class ContextInput(BaseModel):
+        paper_id: str
+        section: str = ""
+        task: str = ""
+
+    @app.post("/api/context")
+    def context(body: ContextInput):
+        paper = next((p for p in store.papers() if p.paper_id == body.paper_id), None)
+        if paper is None:
+            raise HTTPException(404, "Paper not found")
+        return build_context(store.rules(), paper, body.section, body.task)
+
+    @app.get("/api/regression")
+    def regression():
+        from paperrule.review.regression import run_cases
+        return run_cases(store.regressions(), store.rules())
+
+    @app.get("/api/sync")
+    def sync_status():
+        return gov.git.status()
+
+    @app.get("/api/restore")
+    def restore_info():
+        return {"available": False, "message": "Restore creates an approval proposal; no history exists yet"}
+
+    from paperrule.api.operations import register_operations
+    register_operations(app, store, gov)
+    return app
+
+

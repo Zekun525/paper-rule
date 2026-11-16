@@ -1,0 +1,4 @@
+Synthetic example only.
+Explain the relationship between each inequality in a proof.
+Keep the introduction focused on the paper's specific contribution.
+For this paper only, move the limitations paragraph before the conclusion.
