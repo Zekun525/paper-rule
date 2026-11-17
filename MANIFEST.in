@@ -1,0 +1,2 @@
+include frontend/dist/index.html
+recursive-include frontend/dist/assets *
