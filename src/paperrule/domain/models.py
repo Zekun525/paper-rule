@@ -195,6 +195,22 @@ class ReviewFinding(Record):
     retest_result: str = "not_tested"
 
 
+class ReviewReport(Record):
+    review_id: str
+    paper_id: str | None = None
+    paper_commit: str | None = None
+    task_summary: str = ""
+    section: str = ""
+    task: str = ""
+    source: str = "manual"
+    provider: str = "manual"
+    model: str = ""
+    status: str = "imported"
+    findings: list[ReviewFinding] = Field(default_factory=list)
+    unresolved: list[str] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=utcnow)
+
+
 class RegressionCase(Record):
     id: str
     rule_id: str

@@ -1,11 +1,15 @@
 import { useState } from 'react';
 import { request } from './api';
+import { Reviews } from './Reviews';
 import type { Paper, Rule } from './types';
 
 type Profile = Paper & { project_path?: string | null };
 type Bundle = {
   paper_id: string; section: string; task: string; memory_commit: string | null;
   rules: { rule: Rule; why_loaded: string }[];
+  complete: boolean;
+  mandatory_omitted: string[];
+  excluded_rules: { rule_id: string; reason: string }[];
 };
 type Props = {
   papers: Paper[]; busy: boolean;
@@ -15,6 +19,19 @@ type Props = {
 const emptyProfile = (): Profile => ({
   paper_id: '', title: '', research_type: '', venue: '', article_type: '', project_path: '',
 });
+const exclusionReasons: Record<string, string> = {
+  'different paper': '适用于其他论文',
+  'research type mismatch': '研究类型不匹配',
+  'publication mismatch': '投稿期刊不匹配',
+  'article type mismatch': '文章类型不匹配',
+  'section not included': '不适用于当前章节',
+  'task not included': '不适用于当前任务',
+  'explicitly excluded': '适用条件明确排除了当前论文或章节',
+  'rule is not active': '规则尚未生效或已停用',
+  'rule is not effective yet': '尚未到规则的生效时间',
+  'duplicate identifier': '同一规则已加载',
+  'context budget exceeded': '超出本次规则包的条数或长度上限',
+};
 
 export function Papers({ papers, busy, reload, run }: Props) {
   const [draft, setDraft] = useState<Profile>(emptyProfile);
@@ -83,14 +100,26 @@ export function Papers({ papers, busy, reload, run }: Props) {
       </form>
       {bundle && <>
         <p>已加载 {bundle.rules.length} 条规则。</p>
+        {bundle.complete === false && <div role="alert" className="evidence">
+          <h3>规则上下文不完整</h3>
+          <p>以下必需规则尚未加载：{bundle.mandatory_omitted.join('、')}。</p>
+          <p>请按章节和具体任务缩小范围后重新加载。在补齐这些规则之前，不能据此认定已经遵循全部适用要求。</p>
+        </div>}
         <p className="muted">规则快照：{bundle.memory_commit || '尚无规则提交'}</p>
         {bundle.rules.map(({ rule, why_loaded }) => <article className="evidence" key={rule.id}>
           <small>{rule.id} · v{rule.version}</small><h3>{rule.short_title}</h3><p>{rule.statement}</p>
           <p className="muted">{why_loaded === 'scope matches paper, section, and task'
             ? '适用条件匹配当前论文、章节和任务。' : why_loaded}</p>
         </article>)}
-        {!bundle.rules.length && <p className="empty">当前没有适用的已批准规则；这不表示稿件已通过审查。</p>}
+        {!bundle.rules.length && bundle.complete !== false && <p className="empty">当前没有适用的已批准规则；这不表示稿件已通过审查。</p>}
+        {!!bundle.excluded_rules?.length && <details>
+          <summary>查看未加载的规则及原因（{bundle.excluded_rules.length} 条）</summary>
+          {bundle.excluded_rules.map((item, index) => <p key={item.rule_id + '-' + index}>
+            <b>{item.rule_id}</b>：{exclusionReasons[item.reason] ?? item.reason}
+          </p>)}
+        </details>}
       </>}
     </section>
+    <Reviews paperId={paperId} busy={busy} run={run} />
   </div>;
 }

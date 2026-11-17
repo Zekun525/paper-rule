@@ -107,19 +107,70 @@ def proposal_approve(id: str, proposal_hash: str = typer.Option(..., prompt=True
 
 
 @app.command()
-def context(paper: str, section: str = typer.Option(""), task: str = typer.Option(""), format: str = typer.Option("json")):
-    profile = next((p for p in get_store().papers() if p.paper_id == paper), None)
+def context(paper: str = typer.Option(..., "--paper"),
+            section: str = typer.Option(""), task: str = typer.Option(""),
+            format: str = typer.Option("json")):
+    if format != "json":
+        raise typer.BadParameter("Only json output is supported", param_hint="--format")
+    store = get_store()
+    profile = next((p for p in store.papers() if p.paper_id == paper), None)
     if profile is None:
         raise typer.BadParameter(f"Paper profile {paper!r} was not found")
-    print(json.dumps(build_context(get_store().rules(), profile, section, task), ensure_ascii=False, indent=2))
+    from paperrule.sync.git import GitSync
+    bundle = build_context(store.rules(), profile, section, task)
+    bundle["memory_commit"] = GitSync(store.root).head() or None
+    typer.echo(json.dumps(bundle, ensure_ascii=False, indent=2))
 
 
 @app.command()
-def check(file: Path):
-    from paperrule.review.check import check_text
-    text = file.read_text(encoding="utf-8")
-    findings = check_text(text, get_store().rules())
-    print(json.dumps([f.model_dump(mode="json") for f in findings], ensure_ascii=False, indent=2))
+def check(file: Path | None = typer.Argument(None), paper: str = typer.Option(""),  # noqa: B008
+          diff: bool = typer.Option(False), section: str = typer.Option(""),
+          task: str = typer.Option("")):
+    from hashlib import sha256
+
+    from paperrule.review.files import MAX_FILE_BYTES, changed_documents, check_documents
+    try:
+        store = get_store()
+        profile = next((p for p in store.papers() if p.paper_id == paper), None) if paper else None
+        if paper and profile is None:
+            raise ValueError(f"Paper profile {paper!r} was not found")
+        paper_commit = None
+        if diff:
+            if file is not None:
+                raise ValueError("Use --paper with --diff; omit the full-text file argument")
+            if profile is None or not profile.project_path:
+                raise ValueError("--diff requires a saved paper profile with a project path")
+            documents, paper_commit = changed_documents(Path(profile.project_path))
+        else:
+            if file is None:
+                raise ValueError("Specify a text file or use --paper ID --diff")
+            if file.stat().st_size > MAX_FILE_BYTES:
+                raise ValueError("Manuscript text exceeds the 5 MiB review limit")
+            content = file.read_bytes()
+            documents = [{
+                "path": str(file), "text": content.decode("utf-8-sig"),
+                "sha256": sha256(content).hexdigest(),
+            }]
+        payload = check_documents(
+            store, documents, profile, section=section, task=task,
+            paper_commit=paper_commit, diff_mode=diff,
+        )
+    except (OSError, ValueError) as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+@app.command("review-import")
+def review_import(path: Path):
+    from paperrule.domain.models import ReviewReport
+    from paperrule.review.importing import import_report
+    try:
+        report = ReviewReport.model_validate_json(path.read_text(encoding="utf-8"))
+        store = get_store()
+        report = import_report(store, report)
+    except (OSError, ValueError) as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    typer.echo(json.dumps(report.model_dump(mode="json"), ensure_ascii=False, indent=2))
 
 
 @regression_app.command("run")
@@ -169,13 +220,23 @@ def app_server(host: str = typer.Option("127.0.0.1"), port: int = typer.Option(8
 
 
 @app.command("install-codex")
-def install_codex(paper: Path, scope: str = typer.Option("repo")):
+def install_codex(paper: Path = typer.Option(..., "--paper"),  # noqa: B008
+                  scope: str = typer.Option("repo")):
     from paperrule.integrations.codex.install import install
-    install(paper.resolve(), scope)
+    try:
+        result = install(paper.resolve(), scope)
+    except (OSError, ValueError) as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    typer.echo(json.dumps(result))
 
 
 @app.command("uninstall-codex")
-def uninstall_codex(paper: Path):
+def uninstall_codex(paper: Path = typer.Option(..., "--paper"),  # noqa: B008
+                    scope: str = typer.Option("repo")):
     from paperrule.integrations.codex.install import uninstall
-    uninstall(paper.resolve())
+    try:
+        result = uninstall(paper.resolve(), scope)
+    except (OSError, ValueError) as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    typer.echo(json.dumps(result))
 

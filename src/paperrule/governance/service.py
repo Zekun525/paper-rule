@@ -179,19 +179,76 @@ class Governance:
             raise GovernanceError("Requested rule version does not exist")
         return self.propose(historical, "revert")
 
-    def restore(self, sha: str) -> ChangeProposal:
+    def restore_snapshots(self) -> dict:
+        with self.store.locked(wait=5):
+            head = self.git.head() or None
+            snapshots = []
+            if head:
+                entries = self.git.run(
+                    "log", "-n", "50", "--format=%H%x09%cI%x09%s", "--", "rules",
+                )
+                for entry in entries.splitlines():
+                    commit, created_at, summary = entry.split(chr(9), 2)
+                    snapshots.append({
+                        "commit": commit, "created_at": created_at, "summary": summary,
+                    })
+            return {
+                "available": bool(snapshots), "current_commit": head,
+                "snapshots": snapshots,
+                "message": "Restore requires a preview and a separately approved proposal",
+            }
+
+    def _restore_plan(self, sha: str) -> tuple[str, list[dict]]:
         sha = self.git.validate_sha(sha)
         paths = self.git.run("ls-tree", "-r", "--name-only", sha, "--", "rules").splitlines()
         rules = [RuleRecord.model_validate_json(self.git.run("show", f"{sha}:{p}")) for p in paths if p.endswith(".json")]
+        current = {rule.id: rule for rule in self.store.rules()}
         historical_ids = {r.id for r in rules}
-        for r in self.store.rules():
+        for r in current.values():
             if r.id not in historical_ids:
                 rules.append(r.model_copy(update={"status": RuleStatus.DEPRECATED}))
-        if not rules:
-            raise GovernanceError("Snapshot has no rules to restore")
-        return self.propose(rules[0], "restore", additional=rules[1:])
+        changes = []
+        for rule in rules:
+            before = current.get(rule.id)
+            if before is not None and before.model_dump(exclude={"version", "revision_id"}) == (
+                rule.model_dump(exclude={"version", "revision_id"})
+            ):
+                continue
+            changes.append({
+                "rule_id": rule.id,
+                "action": "deactivate" if rule.status == RuleStatus.DEPRECATED
+                else "amend" if before else "create",
+                "before": before.model_dump(mode="json") if before else None,
+                "after": rule.model_dump(mode="json"),
+            })
+        return sha, changes
+
+    def preview_restore(self, sha: str) -> dict:
+        with self.store.locked(wait=5):
+            commit, changes = self._restore_plan(sha)
+            return {
+                "target_commit": commit, "baseline_commit": self.git.head(),
+                "changes": changes, "requires_approval": True,
+            }
+
+    def restore(self, sha: str, expected_baseline: str | None = None) -> ChangeProposal:
+        with self.store.locked():
+            if expected_baseline is not None and expected_baseline != self.git.head():
+                raise ConflictError("Memory changed since the restore preview; preview it again")
+            _, changes = self._restore_plan(sha)
+            if not changes:
+                raise GovernanceError("Snapshot has no rule changes to restore")
+            rules = [RuleRecord.model_validate(change["after"]) for change in changes]
+            return self.propose(rules[0], "restore", additional=rules[1:])
 
     def diff(self, p: ChangeProposal) -> str:
-        before = p.before.model_dump_json(indent=2) if p.before else ""
-        return "\n".join(difflib.unified_diff(before.splitlines(), p.after.model_dump_json(indent=2).splitlines(),
-                                                fromfile="before", tofile="proposed", lineterm=""))
+        before_map = {r.id: r for r in [p.before, *p.additional_before] if r}
+        sections = []
+        for rule in [p.after, *p.additional_rules]:
+            original = before_map.get(rule.id)
+            before = original.model_dump_json(indent=2) if original else ""
+            sections.append("\n".join(difflib.unified_diff(
+                before.splitlines(), rule.model_dump_json(indent=2).splitlines(),
+                fromfile=f"{rule.id}/before", tofile=f"{rule.id}/proposed", lineterm="",
+            )))
+        return "\n\n".join(sections)

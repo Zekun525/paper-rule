@@ -7,6 +7,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -15,6 +17,7 @@ jobs:
       - run: python -m pytest -q
       - run: python -m ruff check src tests
       - run: python scripts/privacy_check.py
+      - run: python scripts/history_privacy_check.py
   frontend:
     runs-on: ubuntu-latest
     defaults:

@@ -6,6 +6,7 @@ import { RuleEditor } from './RuleEditor';
 import { Rules } from './Rules';
 import { Regression } from './Regression';
 import { Papers } from './Papers';
+import { Settings } from './Settings';
 import type { Rule, Proposal, Source, Feedback, Paper } from './types';
 
 export default function Workbench() {
@@ -40,7 +41,7 @@ export default function Workbench() {
   };
   return <div className="shell workbench">
     <aside><div className="brand"><b>PaperRule</b></div>
-      <nav aria-label="主导航">{['工作台', '来源与意见', '审批中心', '规则知识库', '论文工作区', '回归测试'].map(title =>
+      <nav aria-label="主导航">{['工作台', '来源与意见', '审批中心', '规则知识库', '论文工作区', '回归测试', '设置与诊断'].map(title =>
         <button key={title} className={page === title ? 'active' : ''} onClick={() => setPage(title)}>{title}</button>
       )}</nav><small>本机私有记忆</small>
     </aside>
@@ -64,6 +65,11 @@ export default function Workbench() {
       }} />}
       {page === '回归测试' && <Regression rules={rules} papers={papers} busy={busy} run={run} />}
       {page === '论文工作区' && <Papers papers={papers} busy={busy} reload={reload} run={run} />}
+      {page === '设置与诊断' && <Settings busy={busy} run={run} open={async proposal => {
+        await reload();
+        select(proposal.proposal_id);
+        setPage('审批中心');
+      }} />}
     </main>
   </div>;
 }

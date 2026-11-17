@@ -2,15 +2,17 @@ from __future__ import annotations
 
 import base64
 import binascii
+from typing import Literal
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, PlainTextResponse, Response
 from pydantic import BaseModel, Field
 
-from paperrule.domain.models import ReviewerProfile, RuleRecord
-from paperrule.governance.service import Governance
+from paperrule.domain.models import ReviewerProfile, ReviewReport, RuleRecord
+from paperrule.governance.service import ConflictError, Governance
 from paperrule.ingestion.pipeline import MAX_BYTES, ingest_bytes
 from paperrule.persistence.store import MemoryStore
+from paperrule.sync.git import SyncError
 
 
 class SourceInput(BaseModel):
@@ -32,6 +34,7 @@ class ProposalInput(BaseModel):
 
 class RestoreInput(BaseModel):
     commit: str
+    baseline_commit: str | None = None
 
 
 class RevertInput(BaseModel):
@@ -39,6 +42,33 @@ class RevertInput(BaseModel):
 
 
 def register_operations(app: FastAPI, store: MemoryStore, gov: Governance) -> None:
+    @app.get('/api/reviews')
+    def reviews():
+        return store.reviews()
+
+    @app.get('/api/reviews/{review_id}/report')
+    def review_report(review_id: str, format: Literal["json", "markdown"] = "json"):
+        from paperrule.review.exporting import markdown_report
+        report = next((item for item in store.reviews() if item.review_id == review_id), None)
+        if report is None:
+            raise HTTPException(404, "Review report not found")
+        if format == "json":
+            return JSONResponse(
+                report.model_dump(mode="json"),
+                headers={"Content-Disposition": 'attachment; filename="paperrule-review.json"'},
+            )
+        return PlainTextResponse(
+            markdown_report(report), media_type="text/markdown",
+            headers={"Content-Disposition": 'attachment; filename="paperrule-review.md"'},
+        )
+
+    @app.post('/api/reviews/import')
+    def import_review(body: ReviewReport):
+        from paperrule.review.importing import import_report
+        try:
+            return import_report(store, body)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
     @app.post('/api/sources')
     def import_source(body: SourceInput):
         try:
@@ -94,11 +124,20 @@ def register_operations(app: FastAPI, store: MemoryStore, gov: Governance) -> No
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
 
+    @app.post('/api/restore/preview')
+    def preview_restore(body: RestoreInput):
+        try:
+            return gov.preview_restore(body.commit)
+        except (ValueError, SyncError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+
     @app.post('/api/restore')
     def restore_memory(body: RestoreInput):
         try:
-            return gov.restore(body.commit)
-        except ValueError as exc:
+            return gov.restore(body.commit, body.baseline_commit)
+        except ConflictError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except (ValueError, SyncError) as exc:
             raise HTTPException(400, str(exc)) from exc
 
     @app.post('/api/reviewers')

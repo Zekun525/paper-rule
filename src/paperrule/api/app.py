@@ -21,6 +21,42 @@ def create_app(root: Path | None = None, web_root: Path | None = None) -> FastAP
     def health():
         return {"status": "ok", "memory_path": str(store.root)}
 
+    @app.get("/api/diagnostics")
+    def diagnostics():
+        from paperrule.providers import CodexCLIProvider, OpenAIAPIProvider
+
+        name = os.environ.get("PAPERRULE_PROVIDER", "manual").casefold()
+        factories = {
+            "openai": OpenAIAPIProvider, "openai_api": OpenAIAPIProvider,
+            "codex": CodexCLIProvider, "codex_cli": CodexCLIProvider,
+        }
+        factory = factories.get(name)
+        configured = bool(factory and factory().configured)
+        return {
+            "status": "ok",
+            "version": app.version,
+            "memory_path": str(store.root),
+            "provider": {
+                "name": name,
+                "configured": configured,
+                "connection": "not_checked",
+                "message": (
+                    "已检测到配置；尚未验证登录、网络连接或模型回复。"
+                    if configured else
+                    "当前为人工编辑模式，未连接可用的 AI 服务。"
+                    if name == "manual" else
+                    "未检测到可用配置，请按照安装指南配置 AI 服务后重试。"
+                ),
+            },
+            "counts": {
+                "sources": len(store.sources()),
+                "feedback": len(store.feedback()),
+                "rules": len(store.rules()),
+                "proposals": len(store.proposals()),
+                "papers": len(store.papers()),
+            },
+        }
+
     @app.get("/api/sources")
     def sources():
         return store.sources()
@@ -144,7 +180,7 @@ def create_app(root: Path | None = None, web_root: Path | None = None) -> FastAP
 
     @app.get("/api/restore")
     def restore_info():
-        return {"available": False, "message": "Restore creates an approval proposal; no history exists yet"}
+        return gov.restore_snapshots()
 
     from paperrule.api.operations import register_operations
     register_operations(app, store, gov)

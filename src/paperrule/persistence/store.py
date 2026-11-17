@@ -4,6 +4,7 @@ import json
 import os
 import re
 import threading
+import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TypeVar
@@ -17,6 +18,7 @@ from paperrule.domain.models import (
     PaperProfile,
     RegressionCase,
     ReviewerProfile,
+    ReviewReport,
     RuleRecord,
     SourceRecord,
     digest,
@@ -25,6 +27,7 @@ from paperrule.persistence.index import SearchIndex
 
 T = TypeVar("T", bound=BaseModel)
 _LOCKS: dict[str, threading.RLock] = {}
+_LOCK_STATES: dict[str, threading.local] = {}
 
 
 def identifier(value: str) -> str:
@@ -44,20 +47,31 @@ class MemoryStore:
     def __init__(self, root: Path):
         self.root = root.expanduser().resolve()
         self._mutex = _LOCKS.setdefault(str(self.root), threading.RLock())
+        self._lock_state = _LOCK_STATES.setdefault(str(self.root), threading.local())
         self.index = SearchIndex(self.root)
 
     @contextmanager
-    def locked(self):
+    def locked(self, *, wait: float = 0):
         self.initialize()
         with self._mutex:
+            if getattr(self._lock_state, "held", False):
+                yield
+                return
             lock = self.root / ".transaction.lock"
             fd = None
+            deadline = time.monotonic() + max(wait, 0)
             try:
-                fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                while fd is None:
+                    try:
+                        fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                    except FileExistsError as exc:
+                        if time.monotonic() >= deadline:
+                            raise ValueError("Memory is busy; retry after the current transaction") from exc
+                        time.sleep(0.01)
+                self._lock_state.held = True
                 yield
-            except FileExistsError as exc:
-                raise ValueError("Memory is busy; retry after the current transaction") from exc
             finally:
+                self._lock_state.held = False
                 if fd is not None:
                     os.close(fd)
                     lock.unlink(missing_ok=True)
@@ -105,18 +119,25 @@ class MemoryStore:
         return self._all("feedback", FeedbackItem)
 
     def save_rule(self, rule: RuleRecord) -> None:
-        for path in (self.root / "rules").glob(f"*/{identifier(rule.id)}.json"):
-            path.unlink()
-        level = rule.scope.levels[-1] if rule.scope.levels else "global"
-        folder = {"global": "rules/global", "research_type": "rules/research-type",
-                  "publication": "rules/publication", "paper": "rules/paper",
-                  "section_task": "rules/section-task"}.get(level, "rules/global")
-        self._write(folder, rule.id, rule)
-        self._write("history", f"{rule.id}-v{rule.version}", rule)
+        with self.locked():
+            safe = identifier(rule.id)
+            level = rule.scope.levels[-1] if rule.scope.levels else "global"
+            folder = {"global": "rules/global", "research_type": "rules/research-type",
+                      "publication": "rules/publication", "paper": "rules/paper",
+                      "section_task": "rules/section-task"}.get(level, "rules/global")
+            target = self.root / folder / f"{safe}.json"
+            # Replace first: failed writes must not remove the previous active record.
+            self._write(folder, rule.id, rule)
+            for path in (self.root / "rules").glob(f"*/{safe}.json"):
+                if path != target:
+                    path.unlink()
+            self._write("history", f"{rule.id}-v{rule.version}", rule)
 
     def rules(self) -> list[RuleRecord]:
-        return [r for folder in self.folders if folder.startswith("rules/")
-                for r in self._all(folder, RuleRecord)]
+        # Readers share the approval lock so a scope move cannot expose half a snapshot.
+        with self.locked(wait=5):
+            return [r for folder in self.folders if folder.startswith("rules/")
+                    for r in self._all(folder, RuleRecord)]
 
     def rebuild_index(self) -> int:
         records = []
@@ -184,6 +205,12 @@ class MemoryStore:
 
     def decisions(self) -> list[ApprovalEvent]:
         return self._all("decisions", ApprovalEvent)
+
+    def save_review(self, report: ReviewReport) -> None:
+        self._write("reviews", report.review_id, report)
+
+    def reviews(self) -> list[ReviewReport]:
+        return self._all("reviews", ReviewReport)
 
     def write_json(self, folder: str, key: str, value: dict) -> None:
         identifier(folder)

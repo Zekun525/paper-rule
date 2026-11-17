@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 test('import, revise, approve, persist, regress, and propose a historical revert', async ({ page, request }) => {
+  const baselineRules = await (await request.get('/api/rules')).json();
   await page.goto('/');
   await page.getByRole('button', { name: '来源与意见', exact: true }).click();
   await page.getByLabel('上传材料').setInputFiles({
@@ -10,24 +11,27 @@ test('import, revise, approve, persist, regress, and propose a historical revert
   await expect(page.getByRole('button', { name: /synthetic-review.txt/ })).toBeVisible();
   await expect(page.getByText('Avoid unsupported claims such as obviously in a proof.', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: '据此创建提案' }).click();
+  const ruleId = await page.getByLabel('规则编号', { exact: true }).inputValue();
+  expect(ruleId).toBeTruthy();
   await page.getByLabel('标题', { exact: true }).fill('Synthetic proof clarity');
   await page.getByLabel('规则内容', { exact: true }).fill('avoid: obviously');
   await page.getByLabel('检查方式').selectOption('deterministic');
   await page.getByRole('button', { name: '保存待审批版本' }).click();
   await expect(page.getByRole('heading', { name: '审批中心', exact: true })).toBeVisible();
-  expect(await (await request.get('/api/rules')).json()).toEqual([]);
+  expect(await (await request.get('/api/rules')).json()).toEqual(baselineRules);
   await page.getByLabel('讨论内容').fill('Please keep this scoped as a writing rule.');
   await page.getByRole('button', { name: '发送讨论', exact: true }).click();
   await expect(page.getByText('Please keep this scoped as a writing rule.', { exact: true })).toBeVisible();
-  expect(await (await request.get('/api/rules')).json()).toEqual([]);
+  expect(await (await request.get('/api/rules')).json()).toEqual(baselineRules);
   await page.getByRole('button', { name: '直接修改提案' }).click();
   await page.getByLabel('规则内容', { exact: true }).fill('avoid: clearly');
   await page.getByRole('button', { name: '保存待审批版本' }).click();
   await expect(page.getByRole('button', { name: '批准当前第 3 版' })).toBeVisible();
-  expect(await (await request.get('/api/rules')).json()).toEqual([]);
+  expect(await (await request.get('/api/rules')).json()).toEqual(baselineRules);
   await page.getByRole('button', { name: '批准当前第 3 版' }).click();
   await expect(page.getByRole('button', { name: '批准当前第 3 版' })).toHaveCount(0);
-  const rules = await (await request.get('/api/rules')).json();
+  const rules = (await (await request.get('/api/rules')).json())
+    .filter((item: { id: string }) => item.id === ruleId);
   expect(rules).toHaveLength(1);
   expect(rules[0].statement).toBe('avoid: clearly');
   await page.reload();
@@ -38,12 +42,14 @@ test('import, revise, approve, persist, regress, and propose a historical revert
   await page.getByLabel('规则内容', { exact: true }).fill('avoid: obviously');
   await page.getByRole('button', { name: '保存待审批版本' }).click();
   await page.getByRole('button', { name: '批准当前第 1 版' }).click();
-  await expect.poll(async () => (await (await request.get('/api/rules')).json())[0].version).toBe(2);
+  await expect.poll(async () => (await (await request.get('/api/rules')).json())
+    .find((item: { id: string }) => item.id === ruleId)?.version).toBe(2);
   await page.getByRole('button', { name: '规则知识库', exact: true }).click();
   await page.getByRole('button', { name: /Synthetic proof clarity/ }).click();
   await page.getByRole('button', { name: '以此版本创建回退提案' }).first().click();
   await expect(page.getByRole('heading', { name: '审批中心', exact: true })).toBeVisible();
-  expect((await (await request.get('/api/rules')).json())[0].version).toBe(2);
+  expect((await (await request.get('/api/rules')).json())
+    .find((item: { id: string }) => item.id === ruleId)?.version).toBe(2);
   await page.getByRole('button', { name: '回归测试', exact: true }).click();
   await page.getByLabel('关联规则', { exact: true }).selectOption(rules[0].id);
   await page.getByLabel('待检查的例句').fill('This is obviously true.');
@@ -55,6 +61,8 @@ test('import, revise, approve, persist, regress, and propose a historical revert
   const exported = await request.get(reportURL!);
   expect(exported.ok()).toBeTruthy();
   expect((await exported.json()).passed).toBe(1);
+  const finalRules = await (await request.get('/api/rules')).json();
+  expect(finalRules.filter((item: { id: string }) => item.id !== ruleId)).toEqual(baselineRules);
 });
 
 test('paper workspace saves profiles and recalculates venue and article scope without losing facts', async ({ page, request }, testInfo) => {
@@ -136,4 +144,27 @@ test('paper workspace saves profiles and recalculates venue and article scope wi
   expect(saved.article_type).toBe('full');
   expect(saved.facts).toEqual(facts);
   expect(saved.terms).toEqual(terms);
+});
+
+test('settings accurately reports manual AI and local memory without changing active rules', async ({ page, request }, testInfo) => {
+  const rulesBefore = await (await request.get('/api/rules')).json();
+  await page.goto('/');
+  await page.getByRole('button', { name: '设置与诊断', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '本地服务与 AI 配置', exact: true })).toBeVisible();
+  await expect(page.getByText('当前模式：人工编辑', { exact: true })).toBeVisible();
+  await expect(page.getByText('当前为人工编辑模式，未连接可用的 AI 服务。', { exact: true })).toBeVisible();
+  await expect(page.getByText('状态：仅保存在本机', { exact: true })).toBeVisible();
+  await expect(page.getByText('私有远端：尚未配置，仅在本机保存', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '推送已批准记录', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '拉取私有记忆更新', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '查看本机与远端差异', exact: true })).toBeDisabled();
+  const diagnosticsResponse = page.waitForResponse(response =>
+    response.url().endsWith('/api/diagnostics') && response.request().method() === 'GET');
+  await page.getByRole('button', { name: '重新检查状态', exact: true }).click();
+  const diagnostics = await (await diagnosticsResponse).json();
+  expect(diagnostics.provider.configured).toBe(false);
+  expect(diagnostics.provider.connection).toBe('not_checked');
+  await expect(page.getByText('当前模式：人工编辑', { exact: true })).toBeVisible();
+  expect(await (await request.get('/api/rules')).json()).toEqual(rulesBefore);
+  await page.screenshot({ path: testInfo.outputPath('synthetic-settings.png'), fullPage: true });
 });
