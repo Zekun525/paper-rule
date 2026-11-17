@@ -25,7 +25,7 @@ assert (bundle / 'index.html').is_file()
 with TestClient(create_app(memory)) as client:
     home = client.get('/')
     assert home.status_code == 200, home.status_code
-    assert home.text == (bundle / 'index.html').read_text(encoding='utf-8')
+    assert home.content == (bundle / 'index.html').read_bytes()
     class AssetParser(HTMLParser):
         def __init__(self):
             super().__init__()
