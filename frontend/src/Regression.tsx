@@ -13,6 +13,8 @@ const reasons: Record<string, string> = {
   rule_version_mismatch: '规则版本已经变化，请复核案例', rule_outside_scope: '规则不适用于此论文或章节',
   semantic_provider_unavailable: '语义审查尚未执行', deterministic_check_not_supported: '此规则尚无可运行的固定词句检查',
   unknown_expected_behavior: '案例的预期结果无法识别',
+  semantic_response_invalid: 'AI 回复未通过校验，此案例未完成检查',
+  semantic_judgment_uncertain: 'AI 无法根据当前例句作出可靠判断',
 };
 
 export function Regression({ rules, papers, busy, run }: Props) {
@@ -66,7 +68,7 @@ export function Regression({ rules, papers, busy, run }: Props) {
     </section>
     <section className="panel">
       <h2>检查运行历史</h2>
-      <p>语义审查尚未执行的案例会保留为未检查；空案例集也不代表检查通过。</p>
+      <p>语义案例会调用已配置的 AI 服务。服务不可用、回复无效或无法判断时保留为未检查。通过表示判断符合案例预期，仍需人工核对。</p>
       <button disabled={busy} onClick={() => run(async () => {
         await request('/regression/runs', { paper_id: paper }); await load();
       })}>运行已保存案例</button>
@@ -78,7 +80,23 @@ export function Regression({ rules, papers, busy, run }: Props) {
           <a href={'/api/regression/runs/' + r.run_id + '/report?format=markdown'}>导出 Markdown</a>
         </div>
         <details><summary>逐项结果</summary>{r.results.map(item =>
-          <p key={item.id}>{item.id}：{label(item.status)} {item.reason ? reasons[item.reason] ?? '需要人工复核' : ''}</p>)}
+          <article className="evidence" key={item.id}>
+            <p>{item.id}：{label(item.status)} {item.reason ? reasons[item.reason] ?? '需要人工复核' : ''}</p>
+            {item.judgment && <>
+              <p>AI 判定：{({ violation: '发现问题', compliant: '未发现问题', uncertain: '无法判断' } as Record<string, string>)[item.judgment.verdict] ?? '需要复核'}</p>
+              <p>{item.judgment.explanation}</p>
+              {item.judgment.quote && <blockquote>{item.judgment.quote}</blockquote>}
+              <small>服务：{item.provider} · 模型：{item.model} · {item.human_review === 'pending' ? '待人工核对' : '请核对判断依据'}</small>
+            </>}
+            {item.input_sha256 && <details>
+              <summary>查看本次检查的输入、规则和校验记录</summary>
+              <pre>{JSON.stringify({
+                input_sha256: item.input_sha256, rule_sha256: item.rule_sha256,
+                case_sha256: item.case_sha256, prompt_version: item.prompt_version,
+                case_snapshot: item.case_snapshot, rule_snapshot: item.rule_snapshot,
+              }, null, 2)}</pre>
+            </details>}
+          </article>)}
         </details>
       </article>)}
       {!runs.length && <p className="empty">还没有运行记录。保存案例后即可开始检查。</p>}
