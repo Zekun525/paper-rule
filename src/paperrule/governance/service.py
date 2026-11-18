@@ -8,6 +8,7 @@ from paperrule.domain.models import (
     ApprovalEvent,
     ChangeProposal,
     ChatTurn,
+    Classification,
     ProposalStatus,
     RuleRecord,
     RuleStatus,
@@ -38,11 +39,12 @@ class Governance:
         if operation not in OPERATIONS:
             raise GovernanceError("Unknown proposal operation")
         with self.store.locked():
-            self.git.init()
             before = self.store.rule(rule.id)
             others = additional or []
             if len({r.id for r in [rule, *others]}) != len(others) + 1:
                 raise GovernanceError("A rule may only occur once in a proposal")
+            self._validate_feedback_use([rule, *others], operation, feedback_ids or [])
+            self.git.init()
             proposal = ChangeProposal(
                 proposal_id=f"P-{uuid4().hex[:12]}", operation=operation,
                 feedback_ids=feedback_ids or rule.source_feedback_ids, before=before, after=rule,
@@ -85,6 +87,40 @@ class Governance:
             self.store.save_proposal(proposal)
             return proposal
 
+    def _validate_feedback_use(self, planned: list[RuleRecord], operation: str,
+                               feedback_ids: list[str]) -> None:
+        feedback = {item.id: item for item in self.store.feedback()}
+        references = set(feedback_ids)
+        for rule in planned:
+            references.update(rule.source_feedback_ids)
+        if references - feedback.keys():
+            raise GovernanceError("Proposal references missing feedback records")
+        if operation == "one_off":
+            if len(planned) != 1:
+                raise GovernanceError("A one-off proposal must contain exactly one task")
+            scope = planned[0].scope
+            if scope.levels != ["paper"] or len(scope.paper_ids) != 1:
+                raise GovernanceError("A one-off task requires exactly one paper scope")
+            paper_id = scope.paper_ids[0]
+            if paper_id not in {paper.paper_id for paper in self.store.papers()}:
+                raise GovernanceError("A one-off task requires an existing paper profile")
+            if any(feedback[key].paper_id not in {None, paper_id} for key in references):
+                raise GovernanceError("Task evidence belongs to a different paper")
+            return
+        if operation == "deactivate":
+            return
+        for key in references:
+            item = feedback[key]
+            classification = next(
+                (entry["classification"] for entry in reversed(item.corrections)
+                 if entry.get("classification")), item.classification.value,
+            )
+            if classification == Classification.ONE_OFF_EDIT.value:
+                raise GovernanceError(
+                    "One-off feedback must remain a paper task; explicitly reclassify its evidence "
+                    "before proposing a reusable rule"
+                )
+
     def _validate_relations(self, planned: list[RuleRecord]) -> None:
         allowed = {
             "duplicate_of", "extends", "narrows", "conflicts_with",
@@ -123,6 +159,7 @@ class Governance:
             if proposal.baseline_commit != self.git.head():
                 raise ConflictError("Memory baseline changed; review a refreshed proposal before approval")
             planned = [proposal.after, *proposal.additional_rules]
+            self._validate_feedback_use(planned, proposal.operation, proposal.feedback_ids)
             self._validate_relations(planned)
             before_map = {r.id: r for r in [proposal.before, *proposal.additional_before] if r}
             for rule in planned:

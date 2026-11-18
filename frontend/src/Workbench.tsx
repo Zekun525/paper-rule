@@ -7,6 +7,7 @@ import { Rules } from './Rules';
 import { Regression } from './Regression';
 import { Papers } from './Papers';
 import { Settings } from './Settings';
+import { Tasks } from './Tasks';
 import type { Rule, Proposal, Source, Feedback, Paper } from './types';
 
 export default function Workbench() {
@@ -35,13 +36,13 @@ export default function Workbench() {
     void task().catch(e => setError(e instanceof Error ? e.message : '操作失败，请重试。'))
       .finally(() => { running.current = false; setBusy(false); });
   };
-  const create = async (rule: Rule) => {
-    const proposal = await request<Proposal>('/proposals', { rule, feedback_ids: rule.source_feedback_ids ?? [] });
+  const create = async (rule: Rule, operation = 'create') => {
+    const proposal = await request<Proposal>('/proposals', { rule, operation, feedback_ids: rule.source_feedback_ids ?? [] });
     await reload(); select(proposal.proposal_id); setDraft(false); setPage('审批中心');
   };
   return <div className="shell workbench">
     <aside><div className="brand"><b>PaperRule</b></div>
-      <nav aria-label="主导航">{['工作台', '来源与意见', '审批中心', '规则知识库', '论文工作区', '回归测试', '设置与诊断'].map(title =>
+      <nav aria-label="主导航">{['工作台', '来源与意见', '审批中心', '规则知识库', '论文工作区', '论文修改任务', '回归测试', '设置与诊断'].map(title =>
         <button key={title} className={page === title ? 'active' : ''} onClick={() => setPage(title)}>{title}</button>
       )}</nav><small>本机私有记忆</small>
     </aside>
@@ -65,6 +66,8 @@ export default function Workbench() {
       }} />}
       {page === '回归测试' && <Regression rules={rules} papers={papers} busy={busy} run={run} />}
       {page === '论文工作区' && <Papers papers={papers} busy={busy} reload={reload} run={run} openApprovals={() => setPage('审批中心')} />}
+      {page === '论文修改任务' && <Tasks papers={papers} feedback={feedback} busy={busy} run={run}
+        openProposal={id => { select(id); setPage('审批中心'); }} />}
       {page === '设置与诊断' && <Settings busy={busy} run={run} open={async proposal => {
         await reload();
         select(proposal.proposal_id);

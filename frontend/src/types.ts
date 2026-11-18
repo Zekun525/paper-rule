@@ -3,8 +3,12 @@ export type RuleRelation = { type: string; target_id: string; status?: string };
 export type Rule = { id: string; version: number; status: string; short_title: string; statement: string; scope: Scope; check_method?: string; source_feedback_ids?: string[]; rationale?: string; positive_example?: string; negative_example?: string; relations?: RuleRelation[] };
 export type Proposal = { proposal_id: string; operation: string; after: Rule; before: Rule | null; revision: number; proposal_hash: string; status: string; feedback_ids: string[]; recommendation: string; impact: string[]; revisions: { revision: number; hash: string; after: Rule }[]; chat: { user_text: string; assistant_text: string; provider: string; error?: string }[] };
 export type Source = { id: string; filename: string; extraction_status: string; warnings: string[]; kind: string; reviewer_id: string; paper_id?: string; created_at: string };
-export type Feedback = { id: string; source_id: string; quote: string; reviewer_id: string; reviewer_role: string; paper_id: string | null; classification: string; corrections: { text: string; reason: string }[]; location: { page_index?: number; page?: number; section?: string } };
+export type Feedback = { id: string; source_id: string; quote: string; sha256: string; reviewer_id: string; reviewer_role: string; paper_id: string | null; classification: string; extraction_method?: string; corrections: { text: string; reason: string; classification?: string; created_at?: string }[]; location: { page_index?: number; page?: number; section?: string } };
 export type Paper = { paper_id: string; title: string; venue: string; research_type: string; article_type: string };
+export type PaperTask = {
+  task_id: string; proposal_id: string; proposal_hash: string; paper_id: string;
+  created_at: string; record: Rule;
+};
 export type RegressionResult = {
   id: string; status: string; reason?: string; provider?: string; model?: string;
   prompt_version?: string; human_review?: string;

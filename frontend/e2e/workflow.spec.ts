@@ -10,7 +10,8 @@ test('import, revise, approve, persist, regress, and propose a historical revert
   });
   await expect(page.getByRole('button', { name: /synthetic-review.txt/ })).toBeVisible();
   await expect(page.getByText('Avoid unsupported claims such as obviously in a proof.', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: '据此创建提案' }).click();
+  await page.getByRole('button', { name: '据此创建提案', exact: true })
+    .and(page.locator(':enabled')).click();
   const ruleId = await page.getByLabel('规则编号', { exact: true }).inputValue();
   expect(ruleId).toBeTruthy();
   await page.getByLabel('标题', { exact: true }).fill('Synthetic proof clarity');

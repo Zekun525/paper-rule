@@ -193,6 +193,10 @@ def create_app(root: Path | None = None, web_root: Path | None = None,
     register_operations(app, store, gov)
     from paperrule.api.regression import register_regression
     register_regression(app, store)
+    from paperrule.api.feedback import register_feedback
+    register_feedback(app, store)
+    from paperrule.api.tasks import register_tasks
+    register_tasks(app, store)
     from paperrule.api.web import register_web
     register_web(app, web_root)
     return app
