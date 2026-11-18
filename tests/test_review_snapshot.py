@@ -2,7 +2,7 @@ import hashlib
 import json
 
 import pytest
-from fastapi.testclient import TestClient
+from owner_client import TestClient
 
 from paperrule.api.app import create_app
 from paperrule.domain.models import PaperProfile, ReviewReport, RuleRecord

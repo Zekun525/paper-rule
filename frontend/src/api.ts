@@ -1,9 +1,35 @@
+let csrfToken = '';
+
+export async function initializeSession(): Promise<void> {
+  const token = new URLSearchParams(window.location.hash.slice(1)).get('owner_token');
+  if (token) {
+    window.history.replaceState(null, '', window.location.pathname + window.location.search);
+  }
+  const response = await fetch('/api/session', token ? {
+    method: 'POST', credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }),
+  } : { credentials: 'same-origin' });
+  if (!response.ok) throw new Error('需要打开启动终端提供的本机访问链接。');
+  const session = await response.json();
+  if (typeof session.csrf_token !== 'string' || !session.csrf_token) {
+    throw new Error('本机访问会话无效，请重新打开启动链接。');
+  }
+  csrfToken = session.csrf_token;
+}
+
 export async function request<T>(path: string, body?: unknown): Promise<T> {
-  const response = await fetch('/api' + path, body === undefined ? undefined : {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  const response = await fetch('/api' + path, body === undefined ? {
+    credentials: 'same-origin',
+  } : {
+    method: 'POST', credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+    body: JSON.stringify(body),
   });
   const data = await response.json();
   if (!response.ok) {
+    if (response.status === 401) {
+      throw new Error('本机访问会话已失效，请重新打开启动终端提供的完整链接。');
+    }
     const detail = typeof data.detail === 'string' ? data.detail : '输入内容无效，请检查后重试。';
     throw new Error(detail);
   }

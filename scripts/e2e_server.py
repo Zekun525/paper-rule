@@ -15,9 +15,14 @@ def main():
     temporary.mkdir(exist_ok=True)
     os.environ["PAPERRULE_PROVIDER"] = "manual"
     with tempfile.TemporaryDirectory(prefix="browser-memory-", dir=temporary) as memory:
-        app = create_app(Path(memory), web_root=root / "frontend" / "dist")
+        token = os.environ.get("PAPERRULE_E2E_TOKEN")
+        if not token:
+            raise RuntimeError("Playwright must supply the synthetic owner token")
+        app = create_app(Path(memory), web_root=root / "frontend" / "dist",
+                         owner_token=token)
         server = uvicorn.Server(uvicorn.Config(
             app, host="127.0.0.1", port=int(os.environ.get("PAPERRULE_E2E_PORT", "18765")),
+            proxy_headers=False,
         ))
 
         @app.post("/__e2e/shutdown")

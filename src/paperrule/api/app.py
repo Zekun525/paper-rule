@@ -4,6 +4,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
+from paperrule.api.security import register_owner_security
 from paperrule.domain.models import PaperProfile, RuleRecord
 from paperrule.governance.discussion import discuss_with_provider
 from paperrule.governance.service import ConflictError, Governance, GovernanceError
@@ -11,11 +12,17 @@ from paperrule.persistence.store import MemoryStore
 from paperrule.retrieval.context import build_context
 
 
-def create_app(root: Path | None = None, web_root: Path | None = None) -> FastAPI:
+def create_app(root: Path | None = None, web_root: Path | None = None,
+               *, owner_token: str | None = None) -> FastAPI:
     store = MemoryStore(root or Path(os.environ.get("PAPERRULE_MEMORY", Path.home() / ".local/share/paperrule/memory")))
     store.initialize()
     gov = Governance(store)
     app = FastAPI(title="PaperRule", version="0.1.0", description="Local-first approved writing rules")
+    register_owner_security(app, owner_token)
+
+    @app.get("/healthz", include_in_schema=False)
+    def readiness():
+        return {"status": "ok"}
 
     @app.get("/api/health")
     def health():

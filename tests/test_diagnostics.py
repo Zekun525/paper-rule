@@ -1,4 +1,4 @@
-from fastapi.testclient import TestClient
+from owner_client import TestClient
 
 from paperrule.api.app import create_app
 from paperrule.providers import OpenAIAPIProvider

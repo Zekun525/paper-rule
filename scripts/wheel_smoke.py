@@ -22,7 +22,9 @@ from paperrule.api.app import create_app
 assert Path(paperrule.__file__).resolve().is_relative_to(target.resolve())
 bundle = target / 'paperrule' / 'web'
 assert (bundle / 'index.html').is_file()
-with TestClient(create_app(memory)) as client:
+app = create_app(memory)
+with TestClient(app, base_url='http://127.0.0.1', client=('127.0.0.1', 50000),
+                headers={'Authorization': 'Bearer ' + app.state.owner_auth.owner_token}) as client:
     home = client.get('/')
     assert home.status_code == 200, home.status_code
     assert home.content == (bundle / 'index.html').read_bytes()

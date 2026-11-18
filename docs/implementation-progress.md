@@ -4,16 +4,19 @@ The full task specification is the acceptance authority. This ledger records ver
 
 ## Latest verification record: 2026-11-18
 
-The published source at b4d8b2e542555be97ec583445a69ee0c115d904d passed GitHub Actions run 44263774095:
-https://github.com/Zekun525/paper-rule/actions/runs/44263774095
+The published source at deee337991a0c9f35515f095391c7f86326cdd21 passed GitHub Actions run 44267504602:
+https://github.com/Zekun525/paper-rule/actions/runs/44267504602
 
-- Its recorded local full suite was 148 passed and 1 skipped; frontend checking/build and 6 browser workflows passed. The skipped Windows symlink test is not a passed security assertion.
+- Its recorded local full suite was 165 passed and 1 skipped; frontend checking/build and 7 browser workflows passed. The skipped Windows symlink test is not a passed security assertion.
 - Approved conflict relations are detected before context budgeting, and amendments require explicit proposal approval. Other relationship types do not yet implement inheritance or exception semantics.
 - Review reports now persist rule snapshots, coverage, input evidence and hashes. Import validation does not certify the original manuscript or bind arbitrary external Git claims to historical contents.
 - The packaged wheel includes the production web assets. Distribution CI passed on the published checkpoint; the existing local wheel predates the newest source and must be rebuilt before delivery.
 - This semantic regression change set has 24 related tests passing against scripted responses. Its full Python suite passed with 165 passed and 1 skipped in 189.79 seconds; Ruff and diff whitespace checks passed. Frontend type checking and production build passed. All 7 browser workflows passed in 1.6 minutes and the disposable server shut down successfully. The new browser case checks synthetic model-evidence display and legacy report compatibility. These are adapter, validation and UI checks, not a real-provider quality evaluation.
 - Source candidate scanning found no configured secret patterns. Before committing this change set, the history scan inspected 174 reachable Git objects and found no configured secret patterns or credential filenames. These limited pattern checks do not certify the absence of every kind of private material.
 - Full T01–T26 acceptance, real-provider evaluation, complete first-user installation rehearsal, remaining product workflows, documentation and release remain unfinished.
+- Subsequent local owner-session work is not yet committed or published. Its targeted integration checks passed 51 tests. The full Python suite passed with 188 passed and 1 skipped in 239.29 seconds. Ruff, frontend type checking and production build passed. The first browser run exposed a fragment-navigation login bug; after fixing it and rebuilding the webpage, all 8 browser workflows passed in 1.2 minutes and the disposable server shut down successfully. One workflow uses a real browser session without an injected Authorization header and checks unauthorized writes are rejected. Earlier CI does not validate these later edits. Commit, publication and verification of the new remote CI run remain required.
+- The owner-session wheel built successfully with SHA256 b54a95076976d69f19f738759fd01c132af514556550d308a4b0115e3b23e53c. The isolated wheel smoke check installed that wheel, verified its packaged homepage and two referenced assets, authenticated API access and private-file isolation. It reused the invoking interpreter's dependencies; this is not a clean-machine installation rehearsal.
+- Fresh source candidate scanning found no configured secret patterns. The precommit history scan inspected 183 reachable Git objects and found no configured secret patterns or credential filenames. These are limited pattern checks, not a comprehensive privacy certification.
 
 The checkpoints below are historical. Their test counts, unpublished changes and remaining-work statements describe those earlier versions only.
 

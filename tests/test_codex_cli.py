@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from fastapi.testclient import TestClient
+from owner_client import TestClient
 from typer.testing import CliRunner
 
 from paperrule.api.app import create_app

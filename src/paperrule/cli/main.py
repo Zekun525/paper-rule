@@ -215,8 +215,13 @@ def sync_pull():
 def app_server(host: str = typer.Option("127.0.0.1"), port: int = typer.Option(8765)):
     if host not in {"127.0.0.1", "localhost", "::1"}:
         raise typer.BadParameter("PaperRule only binds localhost in this release")
-    uvicorn.run("paperrule.api.app:create_app", host=host, port=port,
-                factory=True, reload=False)
+    from paperrule.api.app import create_app
+
+    application = create_app()
+    browser_host = "[::1]" if host == "::1" else host
+    token = application.state.owner_auth.owner_token
+    typer.echo(f"Open PaperRule: http://{browser_host}:{port}/#owner_token={token}")
+    uvicorn.run(application, host=host, port=port, reload=False, proxy_headers=False)
 
 
 @app.command("install-codex")

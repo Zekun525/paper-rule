@@ -13,11 +13,14 @@ export default defineConfig({
   expect: { timeout: 10000 },
   reporter: [['list']],
   globalTeardown: './e2e/teardown.ts',
-  use: { baseURL: 'http://127.0.0.1:18765', trace: 'retain-on-failure' },
+  use: {
+    baseURL: 'http://127.0.0.1:18765', trace: 'retain-on-failure',
+    extraHTTPHeaders: { Authorization: 'Bearer ' + process.env.PAPERRULE_E2E_TOKEN },
+  },
   webServer: {
     command: (process.env.PAPERRULE_TEST_PYTHON ?? 'python') + ' scripts/e2e_server.py',
     cwd: path.resolve(import.meta.dirname, '..'),
-    url: 'http://127.0.0.1:18765/api/health',
+    url: 'http://127.0.0.1:18765/healthz',
     reuseExistingServer: false,
     timeout: 30000,
     env: {

@@ -26,7 +26,11 @@ Place paperrule-0.1.0-py3-none-any.whl in your chosen application directory. Git
     .venv/bin/paperrule init --workspace "$PAPERRULE_MEMORY"
     .venv/bin/paperrule app
 
-Open the localhost address printed by the server. The application binds to 127.0.0.1. Keep the terminal open while using it; Ctrl+C stops the service. Set PAPERRULE_MEMORY again in a new terminal before starting the application. Keep using the same private-memory directory to preserve your records.
+Open the complete localhost link printed by paperrule app, including its owner_token fragment. The browser exchanges this local access capability for an HttpOnly session cookie and removes the fragment from its address bar. Keep this link private. A new service process generates a new capability; old browser sessions then require the new link.
+
+请点击启动终端打印的完整本机链接。首次打开会自动建立本机访问会话；重新启动服务后，请使用新链接。无需另设账户密码。服务只监听本机，网页写入和审批请求还需通过会话校验。
+
+The application binds to 127.0.0.1. Keep the terminal open while using it; Ctrl+C stops the service. Set PAPERRULE_MEMORY again in a new terminal before starting the application. Keep using the same private-memory directory to preserve your records.
 
 ## Build from source
 
