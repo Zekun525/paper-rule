@@ -85,6 +85,29 @@ class Governance:
             self.store.save_proposal(proposal)
             return proposal
 
+    def _validate_relations(self, planned: list[RuleRecord]) -> None:
+        allowed = {
+            "duplicate_of", "extends", "narrows", "conflicts_with",
+            "exception_to", "example_of", "supersedes",
+        }
+        known_ids = {rule.id for rule in self.store.rules()} | {rule.id for rule in planned}
+        for rule in planned:
+            for relation in rule.relations:
+                if relation.get("type") not in allowed:
+                    raise GovernanceError("Rule relation type is not supported")
+                state = relation.get("status", "candidate")
+                if state not in {"candidate", "approved"}:
+                    raise GovernanceError("Rule relation status must be candidate or approved")
+                target_id = relation.get("target_id", "")
+                try:
+                    identifier(target_id)
+                except ValueError as exc:
+                    raise GovernanceError("Rule relation requires a valid target identifier") from exc
+                if target_id == rule.id:
+                    raise GovernanceError("A rule cannot declare a relation to itself")
+                if state == "approved" and target_id not in known_ids:
+                    raise GovernanceError("Approved rule relation references a missing target")
+
     def approve(self, proposal_id: str, proposal_hash: str, actor: str = "local-user") -> tuple[ChangeProposal, str]:
         with self.store.locked():
             proposal = self.store.proposal(proposal_id)
@@ -100,6 +123,7 @@ class Governance:
             if proposal.baseline_commit != self.git.head():
                 raise ConflictError("Memory baseline changed; review a refreshed proposal before approval")
             planned = [proposal.after, *proposal.additional_rules]
+            self._validate_relations(planned)
             before_map = {r.id: r for r in [proposal.before, *proposal.additional_before] if r}
             for rule in planned:
                 identifier(rule.id)

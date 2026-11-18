@@ -1,5 +1,6 @@
 import { useId, useState } from 'react';
 import type { Rule } from './types';
+import { RuleRelationsEditor } from './RuleRelationsEditor';
 
 export function RuleEditor({ initial, save, busy }: { initial?: Rule; save: (rule: Rule) => void; busy: boolean }) {
   const formId = useId();
@@ -11,6 +12,8 @@ export function RuleEditor({ initial, save, busy }: { initial?: Rule; save: (rul
     <label>适用层级<select value={rule.scope.levels.at(-1)} onChange={e => setRule({ ...rule, scope: { ...rule.scope, levels: [e.target.value] } })}><option value="global">全局</option><option value="research_type">研究类型</option><option value="publication">投稿期刊和文章类型</option><option value="paper">指定论文</option><option value="section_task">章节与任务</option></select></label>
     {(['paper_ids', 'sections', 'venues', 'article_types', 'exceptions'] as const).map((key, i) => <label key={key}>{['论文编号', '章节', '期刊', '文章类型', '例外说明'][i]}（逗号分隔）<input value={(rule.scope[key] ?? []).join(', ')} onChange={e => setRule({ ...rule, scope: { ...rule.scope, [key]: e.target.value.split(',').map(s => s.trim()).filter(Boolean) } })} /></label>)}
     <label>检查方式<select value={rule.check_method ?? 'semantic'} onChange={e => setRule({ ...rule, check_method: e.target.value })}><option value="semantic">AI 语义审查</option><option value="deterministic">固定词句检查（内容使用 avoid: 开头）</option></select></label>
+    <RuleRelationsEditor relations={rule.relations} busy={busy}
+      change={relations => setRule(current => ({ ...current, relations }))} />
     <label htmlFor={formId + '-positive'}>正面案例</label><textarea id={formId + '-positive'} value={rule.positive_example ?? ''} onChange={e => setRule({ ...rule, positive_example: e.target.value })} />
     <label htmlFor={formId + '-negative'}>问题案例</label><textarea id={formId + '-negative'} value={rule.negative_example ?? ''} onChange={e => setRule({ ...rule, negative_example: e.target.value })} />
     <p className="muted">保存只更新待审批提案。生效规则必须另外明确批准。</p><button disabled={busy} className="primary">保存待审批版本</button>

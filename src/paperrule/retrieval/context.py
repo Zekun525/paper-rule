@@ -2,6 +2,7 @@ import json
 from datetime import UTC, datetime
 
 from paperrule.domain.models import PaperProfile, RuleRecord
+from paperrule.retrieval.relations import declared_conflicts
 
 
 def applies(rule: RuleRecord, paper: PaperProfile, section: str = "", task: str = "") -> tuple[bool, str]:
@@ -42,6 +43,7 @@ def build_context(
         raise ValueError("Context budgets must be positive")
     candidates = []
     excluded = []
+    applicable = []
     for rule in rules:
         if rule.status.value != "active":
             excluded.append({"rule_id": rule.id, "reason": "rule is not active"})
@@ -50,6 +52,7 @@ def build_context(
         if not ok:
             excluded.append({"rule_id": rule.id, "reason": reason})
             continue
+        applicable.append(rule)
         scope = rule.scope
         mandatory = bool(
             rule.blocking or rule.severity in {"error", "critical", "must"}
@@ -61,6 +64,7 @@ def build_context(
         ))
         entry = {"rule": rule.model_dump(mode="json"), "why_loaded": reason}
         candidates.append((mandatory, specificity, entry))
+    unresolved_conflicts, relation_issues = declared_conflicts(rules, applicable)
     candidates.sort(key=lambda candidate: (-int(candidate[0]), -candidate[1]))
     selected = {}
     mandatory_omitted = []
@@ -87,7 +91,9 @@ def build_context(
     return {
         "paper_id": paper.paper_id, "section": section, "task": task, "rules": matched,
         "excluded_rules": excluded,
-        "complete": not mandatory_omitted,
+        "complete": not mandatory_omitted and not unresolved_conflicts and not relation_issues,
+        "unresolved_conflicts": unresolved_conflicts,
+        "relation_issues": relation_issues,
         "mandatory_omitted": mandatory_omitted,
         "budget": {
             "max_rules": max_rules, "max_rule_chars": max_rule_chars,

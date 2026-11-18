@@ -64,7 +64,7 @@ export default function Workbench() {
         await reload(); select(proposal.proposal_id); setPage('审批中心');
       }} />}
       {page === '回归测试' && <Regression rules={rules} papers={papers} busy={busy} run={run} />}
-      {page === '论文工作区' && <Papers papers={papers} busy={busy} reload={reload} run={run} />}
+      {page === '论文工作区' && <Papers papers={papers} busy={busy} reload={reload} run={run} openApprovals={() => setPage('审批中心')} />}
       {page === '设置与诊断' && <Settings busy={busy} run={run} open={async proposal => {
         await reload();
         select(proposal.proposal_id);

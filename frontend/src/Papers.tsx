@@ -10,11 +10,14 @@ type Bundle = {
   complete: boolean;
   mandatory_omitted: string[];
   excluded_rules: { rule_id: string; reason: string }[];
+  unresolved_conflicts?: { rule_ids: string[]; rule_versions: Record<string, number> }[];
+  relation_issues?: { rule_id: string; target_id: string; reason: string }[];
 };
 type Props = {
   papers: Paper[]; busy: boolean;
   reload: () => Promise<void>;
   run: (task: () => Promise<void>) => void;
+  openApprovals: () => void;
 };
 const emptyProfile = (): Profile => ({
   paper_id: '', title: '', research_type: '', venue: '', article_type: '', project_path: '',
@@ -33,7 +36,7 @@ const exclusionReasons: Record<string, string> = {
   'context budget exceeded': '超出本次规则包的条数或长度上限',
 };
 
-export function Papers({ papers, busy, reload, run }: Props) {
+export function Papers({ papers, busy, reload, run, openApprovals }: Props) {
   const [draft, setDraft] = useState<Profile>(emptyProfile);
   const [editing, setEditing] = useState(false);
   const [paperId, setPaperId] = useState('');
@@ -102,8 +105,27 @@ export function Papers({ papers, busy, reload, run }: Props) {
         <p>已加载 {bundle.rules.length} 条规则。</p>
         {bundle.complete === false && <div role="alert" className="evidence">
           <h3>规则上下文不完整</h3>
-          <p>以下必需规则尚未加载：{bundle.mandatory_omitted.join('、')}。</p>
-          <p>请按章节和具体任务缩小范围后重新加载。在补齐这些规则之前，不能据此认定已经遵循全部适用要求。</p>
+          {!!bundle.mandatory_omitted.length && <>
+            <p>以下必需规则尚未加载：{bundle.mandatory_omitted.join('、')}。</p>
+            <p>请按章节和具体任务缩小范围后重新加载。在补齐这些规则之前，不能据此认定已经遵循全部适用要求。</p>
+          </>}
+          {!!bundle.unresolved_conflicts?.length && <>
+            <h4>存在尚未解决的规则冲突</h4>
+            <p>以下已生效规则同时适用，但记录了冲突关系。请讨论并明确批准解决方案；系统不会自动决定采用哪一条。</p>
+            {bundle.unresolved_conflicts.map(conflict => <p key={conflict.rule_ids.join(':')}>
+              {conflict.rule_ids.map(id => id + ' · v' + conflict.rule_versions[id]).join(' ↔ ')}
+            </p>)}
+          </>}
+          {!!bundle.relation_issues?.length && <>
+            <h4>需要核对规则关系</h4>
+            {bundle.relation_issues.map((issue, index) => <p key={issue.rule_id + ':' + index}>
+              {issue.rule_id} → {issue.target_id || '未指定规则'}：
+              {issue.reason === 'self_conflict' ? '规则不能与自身构成冲突，请检查关系。'
+                : '关联的规则不存在，请检查关系。'}
+            </p>)}
+          </>}
+          {(!!bundle.unresolved_conflicts?.length || !!bundle.relation_issues?.length) && <button
+            disabled={busy} onClick={openApprovals}>前往审批中心处理规则关系</button>}
         </div>}
         <p className="muted">规则快照：{bundle.memory_commit || '尚无规则提交'}</p>
         {bundle.rules.map(({ rule, why_loaded }) => <article className="evidence" key={rule.id}>
