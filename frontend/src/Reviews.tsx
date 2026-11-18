@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 import { request } from './api';
+import { ReviewEvidence } from './ReviewEvidence';
+import type { ReviewEvidenceData } from './ReviewEvidence';
 
 type Finding = {
   rule_id: string; rule_version: number; location: string; quote: string;
   description: string; evidence: string; recommendation: string; review_type: string;
   confirmed: boolean | null;
 };
-type Report = {
+type Report = ReviewEvidenceData & {
   review_id: string; paper_id: string | null; task_summary: string;
   paper_commit: string | null; section: string; task: string;
   provider: string; model: string; source: string; status: string;
@@ -60,6 +62,7 @@ export function Reviews({ paperId, busy, run }: Props) {
         <p>报告原始状态：{selected.status}；此状态由报告提供方记录，尚不能代替完整验收。</p>
         <p>章节：{selected.section || '未指定'}；任务：{selected.task || '未指定'}</p>
         <p>论文提交：{selected.paper_commit || '报告未记录论文提交'}</p>
+        <ReviewEvidence report={selected} />
         <div className="actions">
           <a href={'/api/reviews/' + encodeURIComponent(selected.review_id) + '/report'}>导出审查 JSON</a>
           <a href={'/api/reviews/' + encodeURIComponent(selected.review_id) + '/report?format=markdown'}>导出审查 Markdown</a>
