@@ -2,10 +2,12 @@
 
 import difflib
 import hashlib
+import json
 import subprocess
 from pathlib import Path
+from uuid import uuid4
 
-from paperrule.domain.models import PaperProfile
+from paperrule.domain.models import PaperProfile, ReviewReport
 from paperrule.persistence.store import MemoryStore
 from paperrule.retrieval.context import applies
 from paperrule.review.check import check_text
@@ -71,7 +73,13 @@ def check_documents(
 ) -> dict:
     with store.locked(wait=5):
         rules = [rule for rule in store.rules() if rule.status.value == "active"]
-        memory_commit = GitSync(store.root).head() or None
+        memory_git = GitSync(store.root)
+        memory_commit = memory_git.head() if (store.root / ".git").exists() else None
+        memory_commit = memory_commit or None
+        memory_rules_dirty = (
+            bool(memory_git.run("status", "--porcelain", "--", "rules"))
+            if memory_commit else True
+        )
         if profile:
             rules = [rule for rule in rules if applies(rule, profile, section, task)[0]]
         else:
@@ -81,6 +89,10 @@ def check_documents(
                 rule.scope.include, rule.scope.exclude, rule.scope.exceptions,
                 rule.scope.effective_from,
             ))]
+    snapshot = [rule.model_dump(mode="json") for rule in rules]
+    snapshot_hash = hashlib.sha256(json.dumps(
+        snapshot, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+    ).encode("utf-8")).hexdigest()
     unavailable = [
         {"rule_id": rule.id, "rule_version": rule.version,
          "reason": "semantic_not_reviewed" if rule.check_method == "semantic"
@@ -90,20 +102,40 @@ def check_documents(
         or not rule.statement[7:].strip()
     ]
     findings = []
+    checked_line_count = 0
     for document in documents:
         for number, line in enumerate(document["text"].splitlines(), 1):
             if diff_mode and number not in document["changed_lines"]:
                 continue
+            checked_line_count += 1
             for finding in check_text(line, rules):
                 finding.location = document["path"] + ":" + str(number)
                 finding.quote = line
                 findings.append(finding.model_dump(mode="json"))
-    return {
+    unsupported = {item["rule_id"]: item["reason"] for item in unavailable}
+    coverage = [{
+        "rule_id": rule.id, "rule_version": rule.version,
+        "status": "not_reviewed" if not checked_line_count
+        else "unavailable" if rule.id in unsupported else "checked",
+        "reason": "no_lines_in_selected_input" if not checked_line_count
+        else unsupported.get(rule.id, "deterministic_phrase_check"),
+        "checked_line_count": (
+            checked_line_count if rule.id not in unsupported else 0
+        ),
+    } for rule in rules]
+    payload = {
+        "review_id": "REV-" + uuid4().hex[:16],
         "paper_id": profile.paper_id if profile else None,
+        "task_summary": task or ("Review changed manuscript lines" if diff_mode
+                                 else "Review manuscript text"),
+        "source": "paperrule_check", "provider": "deterministic",
         "section": section, "task": task, "diff_mode": diff_mode,
         "paper_commit": paper_commit, "memory_commit": memory_commit,
-        "status": "incomplete" if unavailable else "findings" if findings
-        else "checked" if documents and rules else "not_reviewed",
+        "memory_rules_dirty": memory_rules_dirty,
+        "rule_snapshot": snapshot, "rule_snapshot_sha256": snapshot_hash,
+        "coverage": coverage,
+        "status": "not_reviewed" if not checked_line_count or not rules
+        else "incomplete" if unavailable else "findings" if findings else "checked",
         "findings": findings, "unavailable": unavailable,
         "rules": [{"rule_id": rule.id, "version": rule.version} for rule in rules],
         "files": [{key: value for key, value in document.items()
@@ -111,3 +143,7 @@ def check_documents(
         "semantic_status": "not_reviewed",
         "latex_build_status": "not_run",
     }
+    report = ReviewReport.model_validate(payload)
+    with store.locked(wait=5):
+        store.save_review(report)
+    return report.model_dump(mode="json")

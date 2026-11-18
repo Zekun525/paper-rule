@@ -195,6 +195,25 @@ class ReviewFinding(Record):
     retest_result: str = "not_tested"
 
 
+class ReviewRuleVersion(Record):
+    rule_id: str
+    version: int = Field(ge=1)
+
+
+class ReviewInput(Record):
+    path: str
+    sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    diff: str = ""
+
+
+class ReviewCoverage(Record):
+    rule_id: str
+    rule_version: int = Field(ge=1)
+    status: Literal["checked", "not_reviewed", "unavailable"]
+    reason: str = ""
+    checked_line_count: int = Field(default=0, ge=0)
+
+
 class ReviewReport(Record):
     review_id: str
     paper_id: str | None = None
@@ -206,6 +225,18 @@ class ReviewReport(Record):
     provider: str = "manual"
     model: str = ""
     status: str = "imported"
+    memory_commit: str | None = None
+    memory_rules_dirty: bool | None = None
+    rule_snapshot: list[RuleRecord] = Field(default_factory=list)
+    rule_snapshot_sha256: str | None = None
+    rules: list[ReviewRuleVersion] = Field(default_factory=list)
+    coverage: list[ReviewCoverage] = Field(default_factory=list)
+    files: list[ReviewInput] = Field(default_factory=list)
+    diff_mode: bool = False
+    semantic_status: str = "not_reviewed"
+    latex_build_status: str = "not_run"
+    fixed_items: list[str] = Field(default_factory=list)
+    unavailable: list[dict[str, str | int]] = Field(default_factory=list)
     findings: list[ReviewFinding] = Field(default_factory=list)
     unresolved: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=utcnow)
