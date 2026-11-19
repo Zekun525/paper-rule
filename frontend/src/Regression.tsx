@@ -15,6 +15,12 @@ const reasons: Record<string, string> = {
   unknown_expected_behavior: '案例的预期结果无法识别',
   semantic_response_invalid: 'AI 回复未通过校验，此案例未完成检查',
   semantic_judgment_uncertain: 'AI 无法根据当前例句作出可靠判断',
+  scope_profile_unavailable: '缺少论文资料，无法确定案例的适用范围',
+  case_outside_paper: '案例关联的论文与本次运行范围不同',
+  rule_replaced_in_context: '本次范围已采用获批的替代规则，此旧规则案例未执行',
+  rule_relation_unresolved: '关联规则已变化或关系尚未核对，请重新审查并审批',
+  rule_conflict_unresolved: '适用规则存在尚未解决的冲突',
+  scope_condition_unresolved: '规则适用条件无法确定，请补充或修正条件',
 };
 
 export function Regression({ rules, papers, busy, run }: Props) {
@@ -82,6 +88,10 @@ export function Regression({ rules, papers, busy, run }: Props) {
         <details><summary>逐项结果</summary>{r.results.map(item =>
           <article className="evidence" key={item.id}>
             <p>{item.id}：{label(item.status)} {item.reason ? reasons[item.reason] ?? '需要人工复核' : ''}</p>
+            {!!item.selection_notes?.length && <section aria-label={'本次案例规则选择依据 ' + item.id}>
+              <h4>本次规则选择依据</h4>
+              {item.selection_notes.map((note, index) => <p key={index}>{note}</p>)}
+            </section>}
             {item.judgment && <>
               <p>AI 判定：{({ violation: '发现问题', compliant: '未发现问题', uncertain: '无法判断' } as Record<string, string>)[item.judgment.verdict] ?? '需要复核'}</p>
               <p>{item.judgment.explanation}</p>
@@ -94,6 +104,9 @@ export function Regression({ rules, papers, busy, run }: Props) {
                 input_sha256: item.input_sha256, rule_sha256: item.rule_sha256,
                 case_sha256: item.case_sha256, prompt_version: item.prompt_version,
                 case_snapshot: item.case_snapshot, rule_snapshot: item.rule_snapshot,
+                paper_profile_snapshot: item.paper_profile_snapshot,
+                paper_profile_sha256: item.paper_profile_sha256,
+                selection_rules: item.selection_rules,
               }, null, 2)}</pre>
             </details>}
           </article>)}

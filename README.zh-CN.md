@@ -1,43 +1,35 @@
 # PaperRule
 
-PaperRule 将经人工批准的学术写作规范与公开代码隔离保存，并把来源意见、适用范围、提案修订和审批事件串成可追溯记录。聊天记录不会自动修改生效规则。
+**改过一次，下篇论文不用再踩同一个坑。**
 
-## 快速开始
+PaperRule 是给独立研究者用的 Windows 论文审查工具。把导师批注、审稿意见和自己的改稿经验，变成可以批准、复用和追溯的写作规则。投稿前检查文稿，直接看到**哪句话触发了哪条规则、依据是什么**。
 
-需要 Python 3.12+，在项目目录执行：
+**Windows · 本机浏览器 · 不用注册 · 基础流程不用 API Key**
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -e ".[dev,ingest]"
-paperrule doctor
-paperrule init --workspace "$HOME\paperrule-memory"
-paperrule app
-```
+[快速上手](#快速上手) · [Windows 安装](docs/installation.md) · [English](README.md)
 
-API 文档位于 `http://127.0.0.1:8765/docs`。React/Vite 源码位于 `frontend/`，构建需要 Node/npm。
+![PaperRule 的工作台提示导入第一条意见](docs/assets/windows-workbench.png)
 
-```powershell
-paperrule paper add --id sample-paper --path . --research-type information-theory --venue TIT --article-type full
-paperrule ingest .\examples\feedback.txt --paper sample-paper --reviewer advisor_01
-paperrule rules search proof
-paperrule install-codex --paper .
-```
+## 一条意见，变成可复用的投稿检查
 
-使用 `paperrule proposal draft G-001 "证明清晰度" "说明每一步推导依据"` 创建候选规则；在讨论并审阅完整版本后，再通过 `/api/proposals/{id}/approve` 或 CLI 显式审批。
+> 导师意见：“不要只说结果显然成立；先交代推导或证据。”
 
-## 隐私边界
+1. **导入意见**：在「来源与意见」粘贴上面的示例，保存后点击「据此创建提案」。
+2. **确认规则**：标题填「说明推导或证据」，检查方式选固定词句检查，规则内容填 `avoid: 显然`。保存待审批版本，在「审批中心」批准当前版本。
+3. **审查文稿**：在「论文工作区」保存一个示例论文档案，粘贴 `显然，本方法优于对照组。`，开始审查。报告会指出原句、位置和对应规则。这里演示的是固定词句检查，证据是否充分仍由你判断。
 
-记忆库使用本地用户选择的目录，默认位于用户数据目录。仓库示例均为合成内容。默认不连接 AI，也不上传私有资料。不要将论文、导师意见或真实规则库放进本仓库。
+## 为什么不用普通聊天框？
 
-## 当前实现范围
+| 亮点 | 对使用者有什么用 |
+| --- | --- |
+| 人工审批的 LLM 工作流 | 配置模型后可一起讨论和起草。只有你明确批准的提案版本才会生效。 |
+| 上下文工程与版本化规则记忆 | 按论文、章节和任务选出适用规则，避免把一篇论文的局部要求套用到所有稿件。 |
+| 可追溯审查与回归评估 | 回看原句和规则版本，用已保存的案例检查规则迭代是否改变了预期结果。 |
 
-当前版本提供 JSON 私有记忆、证据保留的文本/PDF/DOCX 导入、严格数据模型、审批门槛、内容哈希与基线检查、本地 Git 权威存储、作用域检索、localhost FastAPI、基础 CLI、React 审批界面、确定性回归案例和明确标记的离线 Provider。可选模型 Provider、SQLite/FTS 和浏览器 E2E 仍作为后续工作；系统不会把离线结果伪称语义审查。
+## 快速上手
 
-## 开发测试
+按 [Windows 安装指南](docs/installation.md) 完成安装，双击 `Start PaperRule.cmd` 启动。页面在本机浏览器打开，工作台会提示下一步。安装后可先用上面的示例体验，无需配置 AI 服务或 GitHub 账号。
 
-```powershell
-python -m pip install -e ".[dev,ingest]"
-pytest -q
-python -m ruff check src tests
-```
+首版面向一台 Windows 电脑上的单人使用。基础词句检查在本机运行；使用语义审查需要你配置兼容服务并明确同意发送所选内容。未运行的语义检查会标为未审查。
+
+[架构](docs/architecture.md) · [AI 接入](docs/codex-integration.md) · [规则适用范围](docs/scope-filters.md)

@@ -1,8 +1,31 @@
-export type Scope = { levels: string[]; paper_ids?: string[]; sections?: string[]; venues?: string[]; article_types?: string[]; exceptions?: string[] };
-export type RuleRelation = { type: string; target_id: string; status?: string };
+export type Scope = {
+  levels: string[];
+  paper_ids?: string[];
+  research_types?: string[];
+  sections?: string[];
+  venues?: string[];
+  article_types?: string[];
+  task_types?: string[];
+  include?: string[];
+  exclude?: string[];
+  exceptions?: string[];
+  effective_from?: string | null;
+};
+export type RuleRelation = {
+  type: string; target_id: string; status?: string;
+  target_version?: string; target_sha256?: string;
+};
 export type Rule = { id: string; version: number; status: string; short_title: string; statement: string; scope: Scope; check_method?: string; source_feedback_ids?: string[]; rationale?: string; positive_example?: string; negative_example?: string; relations?: RuleRelation[] };
 export type Proposal = { proposal_id: string; operation: string; after: Rule; before: Rule | null; revision: number; proposal_hash: string; status: string; feedback_ids: string[]; recommendation: string; impact: string[]; revisions: { revision: number; hash: string; after: Rule }[]; chat: { user_text: string; assistant_text: string; provider: string; error?: string }[] };
-export type Source = { id: string; filename: string; extraction_status: string; warnings: string[]; kind: string; reviewer_id: string; paper_id?: string; created_at: string };
+export type Source = {
+  id: string; filename: string; extraction_status: string; warnings: string[];
+  kind: string; reviewer_id: string; reviewer_role?: string; paper_id?: string;
+  created_at: string; date?: string; intent?: string; sha256?: string;
+  revision_pair?: {
+    before_source_id: string; after_source_id: string;
+    before_sha256: string; after_sha256: string;
+  } | null;
+};
 export type Feedback = { id: string; source_id: string; quote: string; sha256: string; reviewer_id: string; reviewer_role: string; paper_id: string | null; classification: string; extraction_method?: string; corrections: { text: string; reason: string; classification?: string; created_at?: string }[]; location: { page_index?: number; page?: number; section?: string } };
 export type Paper = { paper_id: string; title: string; venue: string; research_type: string; article_type: string };
 export type PaperTask = {
@@ -15,6 +38,9 @@ export type RegressionResult = {
   judgment?: { verdict: string; explanation: string; quote: string };
   input_sha256?: string; rule_sha256?: string; case_sha256?: string;
   case_snapshot?: unknown; rule_snapshot?: unknown;
+  selection_notes?: string[];
+  selection_rules?: { rule_id: string; rule_version: number; rule_sha256: string }[];
+  paper_profile_snapshot?: unknown; paper_profile_sha256?: string | null;
 };
 export type Run = { run_id: string; status: string; total: number; passed: number; failed: number; unavailable: number; created_at: string; results: RegressionResult[] };
 export const closed = new Set(['applied', 'rejected', 'approved', 'synced', 'sync_pending', 'sync_conflict']);

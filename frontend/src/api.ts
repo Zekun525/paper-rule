@@ -24,16 +24,17 @@ export async function request<T>(path: string, body?: unknown): Promise<T> {
     method: 'POST', credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
     body: JSON.stringify(body),
-  });
-  const data = await response.json();
+  }).catch(() => { throw new Error('无法连接本机服务。请确认 PaperRule 仍在运行，然后重试。'); });
   if (!response.ok) {
     if (response.status === 401) {
       throw new Error('本机访问会话已失效，请重新打开启动终端提供的完整链接。');
     }
-    const detail = typeof data.detail === 'string' ? data.detail : '输入内容无效，请检查后重试。';
+    const data = await response.json().catch(() => null);
+    const detail = typeof data?.detail === 'string' ? data.detail :
+      response.status >= 500 ? '本机服务未完成这次操作，请稍后重试。' : '输入内容无效，请检查后重试。';
     throw new Error(detail);
   }
-  return data as T;
+  return await response.json() as T;
 }
 
 export async function encodeFile(file: File): Promise<string> {

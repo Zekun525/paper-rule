@@ -30,31 +30,13 @@ def create_app(root: Path | None = None, web_root: Path | None = None,
 
     @app.get("/api/diagnostics")
     def diagnostics():
-        from paperrule.providers import CodexCLIProvider, OpenAIAPIProvider
+        from paperrule.providers.diagnostics import provider_diagnostics
 
-        name = os.environ.get("PAPERRULE_PROVIDER", "manual").casefold()
-        factories = {
-            "openai": OpenAIAPIProvider, "openai_api": OpenAIAPIProvider,
-            "codex": CodexCLIProvider, "codex_cli": CodexCLIProvider,
-        }
-        factory = factories.get(name)
-        configured = bool(factory and factory().configured)
         return {
             "status": "ok",
             "version": app.version,
             "memory_path": str(store.root),
-            "provider": {
-                "name": name,
-                "configured": configured,
-                "connection": "not_checked",
-                "message": (
-                    "已检测到配置；尚未验证登录、网络连接或模型回复。"
-                    if configured else
-                    "当前为人工编辑模式，未连接可用的 AI 服务。"
-                    if name == "manual" else
-                    "未检测到可用配置，请按照安装指南配置 AI 服务后重试。"
-                ),
-            },
+            "provider": provider_diagnostics(),
             "counts": {
                 "sources": len(store.sources()),
                 "feedback": len(store.feedback()),
@@ -197,6 +179,10 @@ def create_app(root: Path | None = None, web_root: Path | None = None,
     register_feedback(app, store)
     from paperrule.api.tasks import register_tasks
     register_tasks(app, store)
+    from paperrule.api.manuscript import register_manuscript
+    register_manuscript(app, store)
+    from paperrule.api.revisions import register_revisions
+    register_revisions(app, store)
     from paperrule.api.web import register_web
     register_web(app, web_root)
     return app

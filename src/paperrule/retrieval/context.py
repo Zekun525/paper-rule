@@ -2,7 +2,9 @@ import json
 from datetime import UTC, datetime
 
 from paperrule.domain.models import PaperProfile, RuleRecord
+from paperrule.retrieval.effective import resolve_overrides
 from paperrule.retrieval.relations import declared_conflicts
+from paperrule.retrieval.scope_filters import UNRESOLVED_SCOPE, match_filters
 
 
 def applies(rule: RuleRecord, paper: PaperProfile, section: str = "", task: str = "") -> tuple[bool, str]:
@@ -25,9 +27,7 @@ def applies(rule: RuleRecord, paper: PaperProfile, section: str = "", task: str 
         return False, "section not included"
     if scope.task_types and task not in scope.task_types:
         return False, "task not included"
-    if paper.paper_id in scope.exclude or section in scope.exclude:
-        return False, "explicitly excluded"
-    return True, "scope matches paper, section, and task"
+    return match_filters(scope, paper, section, task)
 
 
 def build_context(
@@ -44,6 +44,7 @@ def build_context(
     candidates = []
     excluded = []
     applicable = []
+    scope_issues = []
     for rule in rules:
         if rule.status.value != "active":
             excluded.append({"rule_id": rule.id, "reason": "rule is not active"})
@@ -51,6 +52,8 @@ def build_context(
         ok, reason = applies(rule, paper, section, task)
         if not ok:
             excluded.append({"rule_id": rule.id, "reason": reason})
+            if reason == UNRESOLVED_SCOPE:
+                scope_issues.append({"rule_id": rule.id, "reason": reason})
             continue
         applicable.append(rule)
         scope = rule.scope
@@ -64,7 +67,17 @@ def build_context(
         ))
         entry = {"rule": rule.model_dump(mode="json"), "why_loaded": reason}
         candidates.append((mandatory, specificity, entry))
+    resolution = resolve_overrides(rules, applicable)
+    effective_ids = {rule.id for rule in resolution.rules}
+    replacement_ids = {entry["rule_id"] for entry in resolution.relations}
+    candidates = [
+        (mandatory or entry["rule"]["id"] in replacement_ids, specificity, entry)
+        for mandatory, specificity, entry in candidates
+        if entry["rule"]["id"] in effective_ids
+    ]
+    excluded.extend(resolution.excluded)
     unresolved_conflicts, relation_issues = declared_conflicts(rules, applicable)
+    relation_issues.extend(resolution.issues)
     candidates.sort(key=lambda candidate: (-int(candidate[0]), -candidate[1]))
     selected = {}
     mandatory_omitted = []
@@ -91,9 +104,14 @@ def build_context(
     return {
         "paper_id": paper.paper_id, "section": section, "task": task, "rules": matched,
         "excluded_rules": excluded,
-        "complete": not mandatory_omitted and not unresolved_conflicts and not relation_issues,
+        "complete": (
+            not mandatory_omitted and not unresolved_conflicts
+            and not relation_issues and not scope_issues
+        ),
+        "scope_issues": scope_issues,
         "unresolved_conflicts": unresolved_conflicts,
         "relation_issues": relation_issues,
+        "approved_relations": resolution.relations,
         "mandatory_omitted": mandatory_omitted,
         "budget": {
             "max_rules": max_rules, "max_rule_chars": max_rule_chars,

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+from subprocess import TimeoutExpired
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException
@@ -13,6 +14,7 @@ from paperrule.governance.service import ConflictError, Governance
 from paperrule.ingestion.pipeline import MAX_BYTES, ingest_bytes
 from paperrule.persistence.store import MemoryStore
 from paperrule.sync.git import SyncError
+from paperrule.sync.preview import preview_rule_divergence
 
 
 class SourceInput(BaseModel):
@@ -23,6 +25,7 @@ class SourceInput(BaseModel):
     paper_id: str | None = None
     kind: str = 'text'
     intent: str = ''
+    date: str = Field(default='', max_length=128)
 
 
 class ProposalInput(BaseModel):
@@ -82,7 +85,7 @@ def register_operations(app: FastAPI, store: MemoryStore, gov: Governance) -> No
                 source, items = ingest_bytes(
                     data, body.filename, store, reviewer_id=body.reviewer_id,
                     reviewer_role=body.reviewer_role, paper_id=body.paper_id,
-                    source_kind=body.kind, intent=body.intent,
+                    source_kind=body.kind, intent=body.intent, date=body.date,
                 )
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
@@ -162,6 +165,20 @@ def register_operations(app: FastAPI, store: MemoryStore, gov: Governance) -> No
             result = gov.git.pull()
             store.write_json('cache', 'sync', result)
         return result
+
+    @app.post('/api/sync/preview')
+    def sync_preview():
+        try:
+            if "origin" not in gov.git.run("remote").splitlines():
+                raise HTTPException(400, "尚未配置私有远端，请先完成私有仓库连接。")
+            # Fetch may wait on the network; keep it outside the authority lock.
+            gov.git.run("fetch", "--no-tags", "origin")
+            with store.locked():
+                return preview_rule_divergence(gov.git, fetch=False)
+        except (SyncError, TimeoutExpired) as exc:
+            raise HTTPException(
+                503, "无法取得私有仓库的差异，请检查连接后重试。已有规则仍保留在本机。",
+            ) from exc
 
     @app.get('/api/sync/differences')
     def sync_differences():

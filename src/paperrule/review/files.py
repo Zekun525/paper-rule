@@ -3,14 +3,17 @@
 import difflib
 import hashlib
 import json
+import os
 import subprocess
 from pathlib import Path
 from uuid import uuid4
 
 from paperrule.domain.models import PaperProfile, ReviewReport
 from paperrule.persistence.store import MemoryStore
-from paperrule.retrieval.context import applies
+from paperrule.providers import CodexCLIProvider, OpenAIAPIProvider
+from paperrule.providers.base import AIProvider
 from paperrule.review.check import check_text
+from paperrule.review.selection import select_review_rules
 from paperrule.sync.git import GitSync
 
 TEXT_SUFFIXES = {".tex", ".bib", ".md", ".txt"}
@@ -70,9 +73,13 @@ def check_documents(
     store: MemoryStore, documents: list[dict], profile: PaperProfile | None = None,
     *, section: str = "", task: str = "", paper_commit: str | None = None,
     diff_mode: bool = False,
+    semantic: bool = False, semantic_provider: AIProvider | None = None,
+    max_semantic_calls: int = 8,
 ) -> dict:
     with store.locked(wait=5):
-        rules = [rule for rule in store.rules() if rule.status.value == "active"]
+        all_rules = store.rules()
+        selection = select_review_rules(all_rules, profile, section, task)
+        rules = selection.rules
         memory_git = GitSync(store.root)
         memory_commit = memory_git.head() if (store.root / ".git").exists() else None
         memory_commit = memory_commit or None
@@ -80,35 +87,32 @@ def check_documents(
             bool(memory_git.run("status", "--porcelain", "--", "rules"))
             if memory_commit else True
         )
-        if profile:
-            rules = [rule for rule in rules if applies(rule, profile, section, task)[0]]
-        else:
-            rules = [rule for rule in rules if not any((
-                rule.scope.paper_ids, rule.scope.sections, rule.scope.task_types,
-                rule.scope.research_types, rule.scope.venues, rule.scope.article_types,
-                rule.scope.include, rule.scope.exclude, rule.scope.exceptions,
-                rule.scope.effective_from,
-            ))]
     snapshot = [rule.model_dump(mode="json") for rule in rules]
     snapshot_hash = hashlib.sha256(json.dumps(
         snapshot, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
     ).encode("utf-8")).hexdigest()
-    unavailable = [
+    unavailable = selection.unavailable + [
         {"rule_id": rule.id, "rule_version": rule.version,
-         "reason": "semantic_not_reviewed" if rule.check_method == "semantic"
-         else "deterministic_check_not_supported"}
-        for rule in rules if rule.check_method != "deterministic"
+         "reason": selection.blocked.get(rule.id) or (
+         "semantic_not_reviewed" if rule.check_method == "semantic"
+         else "semantic_exception_not_reviewed" if rule.scope.exceptions
+         else "deterministic_check_not_supported")}
+        for rule in rules if rule.id in selection.blocked or rule.check_method != "deterministic"
+        or rule.scope.exceptions
         or not rule.statement.casefold().startswith("avoid: ")
         or not rule.statement[7:].strip()
     ]
     findings = []
+    phrase_rules = [
+        rule for rule in rules if not rule.scope.exceptions and rule.id not in selection.blocked
+    ]
     checked_line_count = 0
     for document in documents:
         for number, line in enumerate(document["text"].splitlines(), 1):
             if diff_mode and number not in document["changed_lines"]:
                 continue
             checked_line_count += 1
-            for finding in check_text(line, rules):
+            for finding in check_text(line, phrase_rules):
                 finding.location = document["path"] + ":" + str(number)
                 finding.quote = line
                 findings.append(finding.model_dump(mode="json"))
@@ -133,6 +137,7 @@ def check_documents(
         "paper_commit": paper_commit, "memory_commit": memory_commit,
         "memory_rules_dirty": memory_rules_dirty,
         "rule_snapshot": snapshot, "rule_snapshot_sha256": snapshot_hash,
+        "selection_notes": selection.notes, "unresolved": selection.unresolved,
         "coverage": coverage,
         "status": "not_reviewed" if not checked_line_count or not rules
         else "incomplete" if unavailable else "findings" if findings else "checked",
@@ -143,6 +148,21 @@ def check_documents(
         "semantic_status": "not_reviewed",
         "latex_build_status": "not_run",
     }
+    if semantic:
+        from paperrule.review.semantic_checks import augment_semantic_review
+
+        factories = {
+            "openai": OpenAIAPIProvider, "openai_api": OpenAIAPIProvider,
+            "codex": CodexCLIProvider, "codex_cli": CodexCLIProvider,
+        }
+        factory = factories.get(os.environ.get("PAPERRULE_PROVIDER", "manual").casefold())
+        provider = semantic_provider if semantic_provider is not None else (
+            factory() if factory else None
+        )
+        augment_semantic_review(
+            payload, documents, rules, provider, max_calls=max_semantic_calls,
+            blocked=selection.blocked,
+        )
     report = ReviewReport.model_validate(payload)
     with store.locked(wait=5):
         store.save_review(report)

@@ -29,6 +29,7 @@ test('manual transcription and corrections preserve originals without approving 
     const commitBefore = (await (await request.get('/api/sync')).json()).commit;
     await page.goto('/');
     await page.getByRole('button', { name: '来源与意见', exact: true }).click();
+    await page.getByText('填写来源、论文和日期（可选）', { exact: true }).click();
     await page.getByLabel('来源代号', { exact: true }).fill('synthetic-manual-reviewer');
     await page.getByRole('combobox', { name: '用途', exact: true }).selectOption('annotated_pdf');
     const importedResponse = page.waitForResponse(response =>

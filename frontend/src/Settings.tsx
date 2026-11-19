@@ -3,6 +3,7 @@ import { request } from './api';
 import { label } from './types';
 import type { Proposal } from './types';
 import { Restore } from './Restore';
+import { SyncPreview } from './SyncPreview';
 
 type Diagnostics = {
   status: string; version: string; memory_path: string;
@@ -21,7 +22,9 @@ export function Settings({ busy, run, open }: Props) {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [difference, setDifference] = useState<string>();
+  const [previewReset, setPreviewReset] = useState(0);
   const load = async () => {
+    setPreviewReset(value => value + 1);
     setError('');
     const [a, b] = await Promise.all([
       request<Diagnostics>('/diagnostics'), request<Sync>('/sync'),
@@ -30,6 +33,7 @@ export function Settings({ busy, run, open }: Props) {
   };
   useEffect(() => { void load().catch(e => setError(e.message)); }, []);
   const synchronize = (action: 'push' | 'pull') => run(async () => {
+    setPreviewReset(value => value + 1);
     setMessage(''); setDifference(undefined);
     const result = await request<{ status: string }>('/sync/' + action, {});
     const messages: Record<string, string> = {
@@ -58,7 +62,7 @@ export function Settings({ busy, run, open }: Props) {
         <p className="muted">配置检测不会向模型发送材料。讨论中出现服务不可用时，意见和草稿仍会保存；只有明确批准才改变生效规则。</p>
       </>}
     </section>
-    <section className="panel">
+    <section className="panel sync-panel">
       <h2>私有记忆同步</h2>
       {sync && <>
         <p>状态：{label(sync.status)}</p>
@@ -83,6 +87,8 @@ export function Settings({ busy, run, open }: Props) {
         {difference ? <pre className="diff">{difference}</pre>
           : <p>本次未返回规则差异；请结合同步状态判断是否已经取得远端版本。</p>}
       </details>}
+      <SyncPreview busy={busy} remoteConfigured={!!sync?.remote_configured}
+        resetToken={previewReset} run={run} />
     </section>
   </div>;
 }

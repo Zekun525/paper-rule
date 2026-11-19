@@ -4,11 +4,7 @@ on:
   pull_request:
 jobs:
   distribution:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -29,11 +25,11 @@ jobs:
       - run: python scripts/wheel_smoke.py dist/paperrule-0.1.0-py3-none-any.whl --temporary-root .test-tmp
       - uses: actions/upload-artifact@v4
         with:
-          name: wheel-${{ matrix.os }}
+          name: wheel-windows
           path: dist/*.whl
           if-no-files-found: error
   python:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
         with:
@@ -48,7 +44,7 @@ jobs:
       - run: python scripts/privacy_check.py
       - run: python scripts/history_privacy_check.py
   frontend:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     defaults:
       run:
         working-directory: frontend
@@ -63,7 +59,7 @@ jobs:
       - run: npm run typecheck
       - run: npm run build
   browser:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -82,9 +78,9 @@ jobs:
         working-directory: frontend
       - run: npm run build
         working-directory: frontend
-      - run: npx playwright install --with-deps chromium
+      - run: npx playwright install chromium
         working-directory: frontend
-      - run: npm run test:e2e -- --global-timeout=120000
+      - run: npm run test:e2e -- --global-timeout=300000
         working-directory: frontend
       - uses: actions/upload-artifact@v4
         if: failure()

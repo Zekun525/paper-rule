@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { request } from './api';
+import { ManuscriptReview } from './ManuscriptReview';
 import { ReviewEvidence } from './ReviewEvidence';
 import type { ReviewEvidenceData } from './ReviewEvidence';
 
@@ -47,6 +48,8 @@ export function Reviews({ paperId, busy, run }: Props) {
     {error && <p role="alert">{error}</p>}
     {!paperId && <p className="empty">请先选择已保存的论文。</p>}
     {paperId && <>
+      <ManuscriptReview paperId={paperId} busy={busy} run={run}
+        onSaved={async reviewId => { await reload(); setSelectedId(reviewId); }} />
       <button disabled={busy || loading} onClick={() => run(reload)}>刷新审查记录</button>
       {loading && <p role="status">正在读取审查记录…</p>}
       {reports.map(report => <button className="record" key={report.review_id}

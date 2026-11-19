@@ -3,6 +3,8 @@
 from paperrule.domain.models import ReviewReport, digest
 from paperrule.persistence.store import MemoryStore, identifier
 from paperrule.retrieval.context import applies
+from paperrule.review.evidence import validate_semantic_evidence
+from paperrule.review.selection import select_review_rules
 
 
 def import_report(store: MemoryStore, report: ReviewReport) -> ReviewReport:
@@ -19,6 +21,8 @@ def import_report(store: MemoryStore, report: ReviewReport) -> ReviewReport:
             if profile is None:
                 raise ValueError("Paper profile was not found")
         known = {r.id: r for r in store.rules()}
+        selection = select_review_rules(list(known.values()), profile, report.section, report.task)
+        selected_ids = {rule.id for rule in selection.rules}
         snapshots = {rule.id: rule for rule in report.rule_snapshot}
         if len(snapshots) != len(report.rule_snapshot):
             raise ValueError("Review snapshot contains duplicate rule identifiers")
@@ -32,6 +36,7 @@ def import_report(store: MemoryStore, report: ReviewReport) -> ReviewReport:
                 raise ValueError(f"Review snapshot does not match the current rule: {rule.id}")
         references = [(item.rule_id, item.version) for item in report.rules]
         references.extend((item.rule_id, item.rule_version) for item in report.coverage)
+        references.extend((item.rule_id, item.rule_version) for item in report.semantic_evidence)
         for field in (report.rules, report.coverage):
             if len({item.rule_id for item in field}) != len(field):
                 raise ValueError("Review contains duplicate rule or coverage identifiers")
@@ -54,9 +59,19 @@ def import_report(store: MemoryStore, report: ReviewReport) -> ReviewReport:
                 rule.scope.effective_from,
             )):
                 raise ValueError("Scoped review references require a paper profile")
+            if rule_id not in selected_ids:
+                raise ValueError(f"Review references a rule replaced in this context: {rule_id}")
         for item in report.coverage:
             if item.status != "checked" and item.checked_line_count:
                 raise ValueError("Unreviewed coverage cannot claim checked lines")
+            if item.rule_id in selection.blocked and item.status == "checked":
+                raise ValueError("Unresolved rule relationships cannot claim completed coverage")
+        for item in report.semantic_evidence:
+            if item.rule_id in selection.blocked and (
+                item.status in {"checked", "findings"}
+                or item.checked_line_count or item.findings or item.judgment
+            ):
+                raise ValueError("Unresolved rule relationships cannot claim semantic judgments")
         for finding in report.findings:
             rule = known.get(finding.rule_id)
             if rule is None:
@@ -72,7 +87,14 @@ def import_report(store: MemoryStore, report: ReviewReport) -> ReviewReport:
             if profile is None and (
                 rule.scope.paper_ids or rule.scope.sections or rule.scope.task_types
                 or rule.scope.research_types or rule.scope.venues or rule.scope.article_types
+                or rule.scope.include or rule.scope.exclude or rule.scope.exceptions
+                or rule.scope.effective_from
             ):
                 raise ValueError("Scoped review findings require a paper profile")
+            if finding.rule_id not in selected_ids:
+                raise ValueError("Review finding references a rule replaced in this context")
+            if finding.rule_id in selection.blocked:
+                raise ValueError("Unresolved rule relationships cannot produce findings")
+        validate_semantic_evidence(report)
         store.save_review(report)
         return report

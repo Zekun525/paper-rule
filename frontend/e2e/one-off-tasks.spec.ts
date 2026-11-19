@@ -11,6 +11,7 @@ test('one-off feedback becomes an approved paper task without activating a rule'
     const baseline = await (await request.get('/api/rules')).json();
     await page.goto('/');
     await page.getByRole('button', { name: '来源与意见', exact: true }).click();
+    await page.getByText('填写来源、论文和日期（可选）', { exact: true }).click();
     await page.getByRole('combobox', { name: '关联论文', exact: true }).selectOption(paperId);
     await page.getByLabel('上传材料').setInputFiles({
       name: 'synthetic-one-off-review.txt', mimeType: 'text/plain',

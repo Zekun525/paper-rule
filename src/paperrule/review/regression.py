@@ -9,17 +9,23 @@ from paperrule.providers import CodexCLIProvider, OpenAIAPIProvider, ProviderUna
 from paperrule.providers.base import AIProvider
 from paperrule.retrieval.context import applies
 from paperrule.review.check import check_text
+from paperrule.review.selection import ReviewSelection, select_review_rules
 from paperrule.review.semantic import evaluate
 from paperrule.sync.git import GitSync
 
 
 def run_cases(cases: list[RegressionCase], rules: list[RuleRecord],
-              profile: PaperProfile | None = None, *, provider: AIProvider | None = None) -> dict:
+              profile: PaperProfile | None = None, *, provider: AIProvider | None = None,
+              profiles: dict[str, PaperProfile] | None = None) -> dict:
     results = []
+    profiles = profiles or {}
+    selections: dict[tuple[str | None, str, str], ReviewSelection] = {}
     violations = {"violation", "identify_violation"}
     clean = {"clean", "no_violation", "non_violation", "compliant"}
     for case in cases:
         rule = next((r for r in rules if r.id == case.rule_id), None)
+        effective_profile = profile or (profiles.get(case.paper_id) if case.paper_id else None)
+        selection = None
         reason = ""
         if case.expected not in violations | clean:
             reason = "unknown_expected_behavior"
@@ -29,13 +35,40 @@ def run_cases(cases: list[RegressionCase], rules: list[RuleRecord],
             reason = "rule_not_active"
         elif case.rule_version is not None and case.rule_version != rule.version:
             reason = "rule_version_mismatch"
-        elif profile and not applies(rule, profile, case.section, case.task)[0]:
+        elif case.paper_id and effective_profile is not None and (
+            case.paper_id != effective_profile.paper_id
+        ):
+            reason = "case_outside_paper"
+        elif case.paper_id and effective_profile is None or effective_profile is None and any((
+            rule.scope.paper_ids, rule.scope.sections, rule.scope.task_types,
+            rule.scope.research_types, rule.scope.venues, rule.scope.article_types,
+            rule.scope.include, rule.scope.exclude, rule.scope.exceptions,
+            rule.scope.effective_from,
+        )):
+            reason = "scope_profile_unavailable"
+        elif effective_profile and not applies(
+            rule, effective_profile, case.section, case.task,
+        )[0]:
             reason = "rule_outside_scope"
-        elif (case.check_method == "semantic" or rule.check_method == "semantic") and (
+        if not reason:
+            key = (
+                effective_profile.paper_id if effective_profile is not None else None,
+                case.section, case.task,
+            )
+            if key not in selections:
+                selections[key] = select_review_rules(
+                    rules, effective_profile, case.section, case.task,
+                )
+            selection = selections[key]
+            if rule.id in selection.blocked:
+                reason = selection.blocked[rule.id]
+            elif not any(selected.id == rule.id for selected in selection.rules):
+                reason = "rule_replaced_in_context"
+        if not reason and (case.check_method == "semantic" or rule.check_method == "semantic") and (
             provider is None or provider.name == "fake"
         ):
             reason = "semantic_provider_unavailable"
-        elif case.check_method != "semantic" and rule.check_method != "semantic" and (
+        elif not reason and case.check_method != "semantic" and rule.check_method != "semantic" and (
             rule.check_method != "deterministic" or not rule.statement.casefold().startswith("avoid: ")
         ):
             reason = "deterministic_check_not_supported"
@@ -45,6 +78,17 @@ def run_cases(cases: list[RegressionCase], rules: list[RuleRecord],
             "case_snapshot": case.model_dump(mode="json"),
             "rule_snapshot": rule.model_dump(mode="json") if rule else None,
             "human_review": "pending",
+            "paper_profile_snapshot": (
+                effective_profile.model_dump(mode="json") if effective_profile is not None else None
+            ),
+            "paper_profile_sha256": (
+                digest(effective_profile) if effective_profile is not None else None
+            ),
+            "selection_notes": list(selection.notes) if selection is not None else [],
+            "selection_rules": [{
+                "rule_id": selected.id, "rule_version": selected.version,
+                "rule_sha256": digest(selected),
+            } for selected in selection.rules] if selection is not None else [],
         }
         semantic = {}
         if not reason and (case.check_method == "semantic" or rule.check_method == "semantic"):
@@ -84,7 +128,8 @@ def run_cases(cases: list[RegressionCase], rules: list[RuleRecord],
 
 def run_stored_cases(store: MemoryStore, paper_id: str = "") -> dict:
     with store.locked():
-        profile = next((p for p in store.papers() if p.paper_id == paper_id), None)
+        profiles = {profile.paper_id: profile for profile in store.papers()}
+        profile = profiles.get(paper_id)
         if paper_id and profile is None:
             raise ValueError("Paper profile was not found")
         cases = [case for case in store.regressions()
@@ -97,7 +142,9 @@ def run_stored_cases(store: MemoryStore, paper_id: str = "") -> dict:
         "openai": OpenAIAPIProvider, "openai_api": OpenAIAPIProvider,
     }
     factory = factories.get(os.environ.get("PAPERRULE_PROVIDER", "manual").casefold())
-    report = run_cases(cases, rules, profile, provider=factory() if factory else None)
+    report = run_cases(
+        cases, rules, profile, provider=factory() if factory else None, profiles=profiles,
+    )
     with store.locked():
         report.update({
             "run_id": "RUN-" + uuid4().hex,

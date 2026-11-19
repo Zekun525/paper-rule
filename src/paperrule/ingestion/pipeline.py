@@ -13,6 +13,7 @@ from paperrule.domain.models import (
     FeedbackItem,
     FeedbackKind,
     Location,
+    RevisionPairReference,
     SourceRecord,
 )
 from paperrule.persistence.store import MemoryStore
@@ -173,7 +174,7 @@ def ingest_bytes(data: bytes, filename: str, store: MemoryStore, reviewer_id: st
     original.write_bytes(data)
     source = SourceRecord(id=source_id, filename=filename, sha256=sha256(data).hexdigest(),
                           kind=kind, reviewer_id=reviewer_id, paper_id=paper_id, intent=intent,
-                          date=date, attachment=attachment)
+                          reviewer_role=reviewer_role, date=date, attachment=attachment)
     records: list[dict] = []
     try:
         if suffix == '.pdf':
@@ -228,25 +229,125 @@ def ingest_file(path: Path, store: MemoryStore, **kwargs) -> list[FeedbackItem]:
 
 
 def ingest_revision_pair(before: bytes, after: bytes, filename: str, store: MemoryStore,
-                         reviewer_id: str = 'author', paper_id: str | None = None) -> dict:
+                         reviewer_id: str = 'author', paper_id: str | None = None, *,
+                         after_filename: str | None = None, reviewer_role: str = 'author',
+                         intent: str = '', date: str = '') -> dict:
     suffix = validate_filename(filename)
     if suffix not in {'.tex', '.md', '.txt', '.docx'}:
         raise ValueError('Revision pairs support LaTeX, Markdown, text, and DOCX')
+    if after_filename is not None and validate_filename(after_filename) != suffix:
+        raise ValueError('Both revision files must have the same supported extension')
     if max(len(before), len(after)) > MAX_BYTES:
         raise ValueError('Revision file exceeds the size limit')
-    def text(data):
+
+    def text(data: bytes) -> tuple[str, list[str]]:
         if suffix == '.docx':
-            records, _ = _extract_docx(data)
-            return '\n'.join(r['quote'] for r in records if r['method'] == 'ooxml_paragraph')
-        return data.decode('utf-8-sig')
-    old, new = text(before), text(after)
-    difference = '\n'.join(difflib.unified_diff(old.splitlines(), new.splitlines(),
-                                               fromfile='before' + suffix, tofile='after' + suffix, lineterm=''))
-    old_source, _ = ingest_bytes(before, 'before' + suffix, store, reviewer_id=reviewer_id, paper_id=paper_id)
-    new_source, _ = ingest_bytes(after, 'after' + suffix, store, reviewer_id=reviewer_id, paper_id=paper_id)
-    source, items = ingest_bytes((difference or '[No textual differences]').encode('utf-8'),
-                                'revision-diff.txt', store, reviewer_id=reviewer_id, paper_id=paper_id,
-                                source_kind=FeedbackKind.REVISION_PAIR)
-    return {'before_source': old_source.id, 'after_source': new_source.id,
-            'diff_source': source.id, 'diff': difference,
-            'feedback': [item.model_dump(mode='json') for item in items]}
+            try:
+                records, warnings = _extract_docx(data)
+            except ET.ParseError as exc:
+                raise ValueError('Revision DOCX contains invalid OOXML') from exc
+            warnings.append(
+                'Comparison uses extracted paragraph text; tracked changes are not accepted or rejected.'
+            )
+            return '\n'.join(
+                r['quote'] for r in records if r['method'] == 'ooxml_paragraph'
+            ), warnings
+        return data.decode('utf-8-sig'), []
+
+    # Validate both inputs and the generated diff before persisting any source.
+    old, old_warnings = text(before)
+    new, new_warnings = text(after)
+    old_name = filename if after_filename is not None else 'before' + suffix
+    new_name = after_filename if after_filename is not None else 'after' + suffix
+    difference = '\n'.join(difflib.unified_diff(
+        old.splitlines(), new.splitlines(), fromfile=old_name, tofile=new_name, lineterm='',
+    ))
+    diff_bytes = difference.encode('utf-8')
+    if len(diff_bytes) > MAX_BYTES:
+        raise ValueError('Generated revision diff exceeds the size limit')
+
+    with store.locked():
+        def persist(data: bytes, name: str, kind: FeedbackKind, warnings: list[str],
+                    reference: RevisionPairReference | None = None) -> SourceRecord:
+            source_id = 'SRC-' + uuid4().hex[:12]
+            attachment = 'attachments/' + source_id + Path(name).suffix.lower()
+            path = (store.root / attachment).resolve()
+            if not path.is_relative_to(store.root):
+                raise ValueError('Invalid attachment location')
+            with path.open('xb') as output:
+                output.write(data)
+            source = SourceRecord(
+                id=source_id, filename=name, sha256=sha256(data).hexdigest(), kind=kind,
+                reviewer_id=reviewer_id, reviewer_role=reviewer_role, paper_id=paper_id,
+                intent=intent, date=date, attachment=attachment, warnings=warnings,
+                extraction_status='partial' if warnings else 'ready', revision_pair=reference,
+            )
+            store.save_source(source)
+            return source
+
+        original_kind = FeedbackKind.DOCX if suffix == '.docx' else FeedbackKind.TEXT
+        old_source = persist(before, old_name, original_kind, old_warnings)
+        new_source = persist(after, new_name, original_kind, new_warnings)
+        reference = RevisionPairReference(
+            before_source_id=old_source.id, after_source_id=new_source.id,
+            before_sha256=old_source.sha256, after_sha256=new_source.sha256,
+        )
+        source = persist(
+            diff_bytes, 'revision-diff.txt', FeedbackKind.REVISION_PAIR, [], reference,
+        )
+        items = []
+        if difference:
+            item = FeedbackItem(
+                id='F-' + uuid4().hex[:12], source_id=source.id,
+                source_kind=FeedbackKind.REVISION_PAIR, reviewer_id=reviewer_id,
+                reviewer_role=reviewer_role, paper_id=paper_id, quote=difference,
+                location=Location(section='revision-diff'), extraction_method='revision_diff',
+                extraction_details=reference.model_dump(mode='json'),
+            )
+            store.save_feedback(item)
+            items.append(item)
+        return {
+            'before_source': old_source.id, 'after_source': new_source.id,
+            'diff_source': source.id, 'source': source.model_dump(mode='json'),
+            'originals': [record.model_dump(mode='json') for record in (old_source, new_source)],
+            'diff': difference, 'text_changed': bool(difference),
+            'feedback': [item.model_dump(mode='json') for item in items],
+        }
+
+
+def read_revision_pair(store: MemoryStore, source_id: str) -> dict:
+    with store.locked():
+        sources = {source.id: source for source in store.sources()}
+        source = sources.get(source_id)
+        if source is None or source.kind != FeedbackKind.REVISION_PAIR or source.revision_pair is None:
+            raise LookupError('Revision pair not found')
+        reference = source.revision_pair
+        old_source = sources.get(reference.before_source_id)
+        new_source = sources.get(reference.after_source_id)
+        if (old_source is None or new_source is None
+                or old_source.sha256 != reference.before_sha256
+                or new_source.sha256 != reference.after_sha256):
+            raise ValueError('Revision source bindings no longer match')
+
+        def checked_bytes(record: SourceRecord) -> bytes:
+            path = (store.root / record.attachment).resolve()
+            if not path.is_relative_to(store.root) or path.stat().st_size > MAX_BYTES:
+                raise ValueError('Invalid revision attachment')
+            data = path.read_bytes()
+            if len(data) > MAX_BYTES or sha256(data).hexdigest() != record.sha256:
+                raise ValueError('Revision attachment hash no longer matches')
+            return data
+
+        checked_bytes(old_source)
+        checked_bytes(new_source)
+        difference = checked_bytes(source).decode('utf-8')
+        return {
+            'before_source': old_source.id, 'after_source': new_source.id,
+            'diff_source': source.id, 'source': source.model_dump(mode='json'),
+            'originals': [record.model_dump(mode='json') for record in (old_source, new_source)],
+            'diff': difference, 'text_changed': bool(difference),
+            'feedback': [
+                item.model_dump(mode='json') for item in store.feedback()
+                if item.source_id == source.id
+            ],
+        }

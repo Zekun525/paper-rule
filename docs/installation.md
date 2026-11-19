@@ -1,5 +1,19 @@
 # Installation / 安装指南
 
+## Windows ZIP / 解压启动
+
+需要 64 位 Python 3.12 和 Git for Windows。将完整 ZIP 解压到有写权限的目录，双击 `Start PaperRule.cmd`。首次启动使用 ZIP 内的文件离线安装依赖，并在本机浏览器打开工作台。使用时保留启动窗口，按 Ctrl+C 可停止应用。默认私有记忆在程序目录旁的 `paperrule-private-memory`，更新时请保留该目录。
+
+The Windows ZIP requires 64-bit Python 3.12 and Git for Windows. Extract the complete ZIP to a writable folder and double-click `Start PaperRule.cmd`. The launcher installs the bundled dependencies offline and opens your local browser. Keep the launcher window open while using the app. Preserve the adjacent `paperrule-private-memory` folder when upgrading.
+
+首版 ZIP 可离线导入纯文本和粘贴意见。如需导入 PDF 或 Word，请参照下文安装可选文档解析依赖。The ZIP supports the text workflow offline. PDF and Word import need the optional `ingest` dependencies described below.
+
+If Python is already installed but the launcher cannot find it, set `PAPERRULE_PYTHON` to the full path of your Python 3.12 `python.exe` in the terminal before running `Start PaperRule.cmd`.
+
+PaperRule targets Windows desktop. Installation instructions and acceptance checks cover Windows; mobile, macOS and Linux are outside the requested delivery scope.
+
+本项目以 Windows 电脑为交付目标，安装说明和验收均以 Windows 为准，不安排手机端、macOS 或 Linux 的适配与验收。
+
 PaperRule requires Python 3.12 or newer and Git. A distribution wheel includes the production web application; users installing that wheel do not need Node.js. Building from source additionally requires Node.js 22.12 or newer in the Node 22 series and npm.
 
 请将公开程序与私有记忆分开保存。安装包包含网页；从源码开发时才需要构建网页。下面所有命令均在你自行选择的项目目录执行，不需要全局安装 Python 依赖。AI 未配置时可使用人工编辑和审批，语义审查不会因此显示为已完成。
@@ -17,14 +31,6 @@ Place paperrule-0.1.0-py3-none-any.whl in your chosen application directory. Git
     $env:PAPERRULE_MEMORY = [System.IO.Path]::GetFullPath((Join-Path (Get-Location).Path "../paperrule-private-memory"))
     ./.venv/Scripts/paperrule.exe init --workspace $env:PAPERRULE_MEMORY
     ./.venv/Scripts/paperrule.exe app
-
-### Linux and macOS
-
-    python3 -m venv .venv
-    .venv/bin/python -m pip install "./paperrule-0.1.0-py3-none-any.whl[ingest]"
-    export PAPERRULE_MEMORY="$(pwd)/../paperrule-private-memory"
-    .venv/bin/paperrule init --workspace "$PAPERRULE_MEMORY"
-    .venv/bin/paperrule app
 
 Open the complete localhost link printed by paperrule app, including its owner_token fragment. The browser exchanges this local access capability for an HttpOnly session cookie and removes the fragment from its address bar. Keep this link private. A new service process generates a new capability; old browser sessions then require the new link.
 
@@ -45,12 +51,7 @@ On Windows:
     ./.venv/Scripts/python.exe -m pip wheel . --no-deps --wheel-dir dist
     ./.venv/Scripts/python.exe -m pip install "./dist/paperrule-0.1.0-py3-none-any.whl[ingest]"
 
-On Linux and macOS:
-
-    .venv/bin/python -m pip wheel . --no-deps --wheel-dir dist
-    .venv/bin/python -m pip install "./dist/paperrule-0.1.0-py3-none-any.whl[ingest]"
-
-Then initialize the private memory and start the service using the platform-specific commands above. A non-editable distribution build deliberately fails when the production web bundle is absent. Build the frontend first rather than distributing a package that opens a missing-workbench page.
+Then initialize the private memory and start the service using the Windows PowerShell commands above. A non-editable distribution build deliberately fails when the production web bundle is absent. Build the frontend before distributing the package.
 
 ## Development installation
 
@@ -59,10 +60,6 @@ Create the virtual environment in the checkout and install the development extra
 Windows:
 
     ./.venv/Scripts/python.exe -m pip install -e ".[dev,ingest]"
-
-Linux and macOS:
-
-    .venv/bin/python -m pip install -e ".[dev,ingest]"
 
 Build the frontend before opening the normal application. Editable installs permit backend development without a built bundle; the root page then explains that the web application is unavailable. The editable install is not evidence that a distributable wheel contains the webpage.
 
@@ -86,12 +83,6 @@ Windows:
     ./.venv/Scripts/python.exe -m pip install "./dist/paperrule-0.1.0-py3-none-any.whl" httpx
     ./.venv/Scripts/python.exe -c "from pathlib import Path; Path('.test-tmp').mkdir(exist_ok=True)"
     ./.venv/Scripts/python.exe scripts/wheel_smoke.py dist/paperrule-0.1.0-py3-none-any.whl --temporary-root .test-tmp
-
-Linux and macOS:
-
-    .venv/bin/python -m pip install "./dist/paperrule-0.1.0-py3-none-any.whl" httpx
-    .venv/bin/python -c "from pathlib import Path; Path('.test-tmp').mkdir(exist_ok=True)"
-    .venv/bin/python scripts/wheel_smoke.py dist/paperrule-0.1.0-py3-none-any.whl --temporary-root .test-tmp
 
 The smoke check installs the exact wheel into a disposable target and starts an isolated Python process outside the source checkout. It verifies the imported package location, the bundled homepage and referenced assets, API availability, and private-file isolation. It reuses the invoking interpreter's dependencies and reports that limitation explicitly. Full first-machine onboarding, real-provider evaluation, and the remaining acceptance scenarios require their own evidence.
 

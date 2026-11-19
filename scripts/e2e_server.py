@@ -4,6 +4,7 @@ import tempfile
 from pathlib import Path
 
 import uvicorn
+from e2e_sync_fixture import register_sync_fixture
 from fastapi import Header, HTTPException
 
 from paperrule.api.app import create_app
@@ -14,12 +15,16 @@ def main():
     temporary = root / ".test-tmp"
     temporary.mkdir(exist_ok=True)
     os.environ["PAPERRULE_PROVIDER"] = "manual"
-    with tempfile.TemporaryDirectory(prefix="browser-memory-", dir=temporary) as memory:
+    with (
+        tempfile.TemporaryDirectory(prefix="browser-memory-", dir=temporary) as memory,
+        tempfile.TemporaryDirectory(prefix="browser-sync-", dir=temporary) as sync_fixture,
+    ):
         token = os.environ.get("PAPERRULE_E2E_TOKEN")
         if not token:
             raise RuntimeError("Playwright must supply the synthetic owner token")
         app = create_app(Path(memory), web_root=root / "frontend" / "dist",
                          owner_token=token)
+        register_sync_fixture(app, Path(memory), Path(sync_fixture), token)
         server = uvicorn.Server(uvicorn.Config(
             app, host="127.0.0.1", port=int(os.environ.get("PAPERRULE_E2E_PORT", "18765")),
             proxy_headers=False,

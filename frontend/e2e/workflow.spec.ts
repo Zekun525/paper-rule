@@ -1,17 +1,28 @@
 import { test, expect } from '@playwright/test';
 
-test('import, revise, approve, persist, regress, and propose a historical revert', async ({ page, request }) => {
+test('import, revise, approve, persist, regress, and propose a historical revert', async ({ page, request }, testInfo) => {
   const baselineRules = await (await request.get('/api/rules')).json();
   await page.goto('/');
-  await page.getByRole('button', { name: '来源与意见', exact: true }).click();
+  const proposals = await (await request.get('/api/proposals')).json();
+  const feedback = await (await request.get('/api/feedback')).json();
+  if (!baselineRules.length && !proposals.length && !feedback.length) {
+    await expect(page.getByRole('heading', { name: '导入第一条意见' })).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath('paperrule-windows.png'), fullPage: true });
+    await page.getByRole('button', { name: '导入意见', exact: true }).click();
+  } else {
+    await page.getByRole('button', { name: '来源与意见', exact: true }).click();
+  }
   await page.getByLabel('上传材料').setInputFiles({
     name: 'synthetic-review.txt', mimeType: 'text/plain',
     buffer: Buffer.from('Avoid unsupported claims such as obviously in a proof.'),
   });
   await expect(page.getByRole('button', { name: /synthetic-review.txt/ })).toBeVisible();
-  await expect(page.getByText('Avoid unsupported claims such as obviously in a proof.', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: '据此创建提案', exact: true })
-    .and(page.locator(':enabled')).click();
+  await page.getByRole('button', { name: /synthetic-review[.]txt/ }).click();
+  const feedbackCard = page.locator('article.evidence').filter({
+    has: page.getByText('Avoid unsupported claims such as obviously in a proof.', { exact: true }),
+  });
+  await expect(feedbackCard).toHaveCount(1);
+  await feedbackCard.getByRole('button', { name: '据此创建提案', exact: true }).click();
   const ruleId = await page.getByLabel('规则编号', { exact: true }).inputValue();
   expect(ruleId).toBeTruthy();
   await page.getByLabel('标题', { exact: true }).fill('Synthetic proof clarity');
@@ -30,7 +41,7 @@ test('import, revise, approve, persist, regress, and propose a historical revert
   await expect(page.getByRole('button', { name: '批准当前第 3 版' })).toBeVisible();
   expect(await (await request.get('/api/rules')).json()).toEqual(baselineRules);
   await page.getByRole('button', { name: '批准当前第 3 版' }).click();
-  await expect(page.getByRole('button', { name: '批准当前第 3 版' })).toHaveCount(0);
+  await expect(page.getByText('已批准，当前版本已生效，可在「规则知识库」中查看。')).toBeVisible();
   const rules = (await (await request.get('/api/rules')).json())
     .filter((item: { id: string }) => item.id === ruleId);
   expect(rules).toHaveLength(1);
@@ -54,14 +65,43 @@ test('import, revise, approve, persist, regress, and propose a historical revert
   await page.getByRole('button', { name: '回归测试', exact: true }).click();
   await page.getByLabel('关联规则', { exact: true }).selectOption(rules[0].id);
   await page.getByLabel('待检查的例句').fill('This is obviously true.');
+  const savedCasePromise = page.waitForResponse(response =>
+    response.url().endsWith('/api/regression/cases') && response.request().method() === 'POST');
   await page.getByRole('button', { name: '保存回归案例' }).click();
+  const savedCaseResponse = await savedCasePromise;
+  expect(savedCaseResponse.ok()).toBeTruthy();
+  const savedCase = await savedCaseResponse.json();
+  expect(savedCase.rule_id).toBe(ruleId);
+  expect(savedCase.rule_version).toBe(2);
   await expect(page.getByText('This is obviously true.', { exact: true })).toBeVisible();
+  const runPromise = page.waitForResponse(response =>
+    response.url().endsWith('/api/regression/runs') && response.request().method() === 'POST');
   await page.getByRole('button', { name: '运行已保存案例' }).click();
-  await expect(page.getByText('1 个案例：1 通过，0 失败，0 未检查')).toBeVisible();
+  const runResponse = await runPromise;
+  expect(runResponse.ok()).toBeTruthy();
+  const report = await runResponse.json();
+  const checkedCase = report.results.find((item: { id: string }) => item.id === savedCase.id);
+  expect(checkedCase).toMatchObject({
+    id: savedCase.id, rule_id: ruleId, rule_version: 2, passed: true, status: 'passed',
+  });
+  expect(checkedCase.findings).toEqual(expect.arrayContaining([
+    expect.objectContaining({ rule_id: ruleId, rule_version: 2 }),
+  ]));
+  expect(report.total).toBe(report.results.length);
+  expect(report.passed).toBe(report.results.filter(
+    (item: { passed: boolean | null }) => item.passed === true).length);
+  expect(report.failed).toBe(report.results.filter(
+    (item: { passed: boolean | null }) => item.passed === false).length);
+  expect(report.unavailable).toBe(report.results.filter(
+    (item: { passed: boolean | null }) => item.passed === null).length);
+  await expect(page.getByText(
+    report.total + ' 个案例：' + report.passed + ' 通过，' + report.failed
+      + ' 失败，' + report.unavailable + ' 未检查', { exact: true },
+  )).toBeVisible();
   const reportURL = await page.getByRole('link', { name: '导出 JSON' }).first().getAttribute('href');
   const exported = await request.get(reportURL!);
   expect(exported.ok()).toBeTruthy();
-  expect((await exported.json()).passed).toBe(1);
+  expect(await exported.json()).toEqual(report);
   const finalRules = await (await request.get('/api/rules')).json();
   expect(finalRules.filter((item: { id: string }) => item.id !== ruleId)).toEqual(baselineRules);
 });
@@ -168,4 +208,49 @@ test('settings accurately reports manual AI and local memory without changing ac
   await expect(page.getByText('当前模式：人工编辑', { exact: true })).toBeVisible();
   expect(await (await request.get('/api/rules')).json()).toEqual(rulesBefore);
   await page.screenshot({ path: testInfo.outputPath('synthetic-settings.png'), fullPage: true });
+});
+
+
+
+test('Windows desktop preserves feedback when AI analysis is unavailable and reloads its history', async ({ page, request }, testInfo) => {
+  const baselineRules = await (await request.get('/api/rules')).json();
+  const baselineProposals = await (await request.get('/api/proposals')).json();
+  const filename = 'synthetic-analysis-unavailable-' + Date.now() + '.txt';
+  const quote = 'Explain this synthetic inference before stating its conclusion.';
+  await page.goto('/');
+  await page.getByRole('button', { name: '来源与意见', exact: true }).click();
+  await page.getByLabel('上传材料').setInputFiles({
+    name: filename, mimeType: 'text/plain', buffer: Buffer.from(quote),
+  });
+  await page.getByRole('button', { name: new RegExp(filename) }).click();
+  const source = (await (await request.get('/api/sources')).json())
+    .find((item: { filename: string }) => item.filename === filename);
+  expect(source).toBeTruthy();
+  const evidence = (await (await request.get('/api/feedback')).json())
+    .find((item: { source_id: string }) => item.source_id === source.id);
+  expect(evidence).toBeTruthy();
+  const response = page.waitForResponse(item =>
+    item.url().endsWith('/api/feedback/' + evidence.id + '/analyses')
+    && item.request().method() === 'POST');
+  await page.getByRole('button', { name: '请求 AI 整理', exact: true }).click();
+  const analysisResponse = await response;
+  expect(analysisResponse.ok()).toBeTruthy();
+  const analysis = await analysisResponse.json();
+  expect(analysis.status).toBe('unavailable');
+  expect(analysis.error).toBe('provider_not_configured');
+  expect(analysis.classification_confirmed).toBe(false);
+  expect(analysis.proposal_created).toBe(false);
+  await expect(page.getByText('AI 未能完成有效整理。意见已保留，可以重试或人工编辑。', { exact: false })).toBeVisible();
+  await expect(page.getByText(quote, { exact: true })).toBeVisible();
+  expect(await (await request.get('/api/rules')).json()).toEqual(baselineRules);
+  expect(await (await request.get('/api/proposals')).json()).toEqual(baselineProposals);
+  expect((await (await request.get('/api/feedback')).json())
+    .find((item: { id: string }) => item.id === evidence.id)).toEqual(evidence);
+  await page.reload();
+  await page.getByRole('button', { name: '来源与意见', exact: true }).click();
+  await page.getByRole('button', { name: new RegExp(filename) }).click();
+  await page.getByRole('button', { name: '查看 AI 整理历史', exact: true }).click();
+  await expect(page.getByText('AI 未能完成有效整理。意见已保留，可以重试或人工编辑。', { exact: false })).toBeVisible();
+  await expect(page.getByRole('button', { name: '编辑 AI 建议草稿', exact: true })).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath('windows-ai-unavailable-history.png'), fullPage: true });
 });

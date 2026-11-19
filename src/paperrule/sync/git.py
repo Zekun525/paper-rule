@@ -20,6 +20,23 @@ class GitSync:
             raise SyncError(result.stderr.strip() or result.stdout.strip())
         return result.stdout.strip()
 
+    def read_blob(self, object_id: str, *, max_bytes: int = 2_000_000) -> bytes:
+        """Read a bounded Git blob without replacement-decoding its evidence."""
+        if not re.fullmatch(r"[0-9a-f]{40}", object_id):
+            raise SyncError("Expected a full Git blob object ID")
+        if self.run("cat-file", "-t", object_id) != "blob":
+            raise SyncError("Expected a Git blob")
+        size = int(self.run("cat-file", "-s", object_id))
+        if size not in range(max_bytes + 1):
+            raise SyncError("Blob exceeds preview size limit")
+        result = subprocess.run(
+            ["git", "-c", "core.hooksPath=", "cat-file", "blob", object_id],
+            cwd=self.root, capture_output=True, check=False, timeout=30,
+        )
+        if result.returncode or len(result.stdout) != size:
+            raise SyncError("Git blob could not be read consistently")
+        return result.stdout
+
     def init(self) -> str:
         if not (self.root / ".git").exists():
             self.run("init", "-b", "main")

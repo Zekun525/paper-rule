@@ -14,7 +14,9 @@ from paperrule.domain.models import (
     RuleStatus,
     digest,
 )
+from paperrule.governance.relation_bindings import bind_draft_targets, validate_target_bindings
 from paperrule.persistence.store import MemoryStore, identifier, proposal_digest
+from paperrule.retrieval.scope_subset import prove_scope_subset
 from paperrule.sync.git import GitSync
 
 
@@ -44,6 +46,9 @@ class Governance:
             if len({r.id for r in [rule, *others]}) != len(others) + 1:
                 raise GovernanceError("A rule may only occur once in a proposal")
             self._validate_feedback_use([rule, *others], operation, feedback_ids or [])
+            rule, *others = bind_draft_targets(
+                [rule, *others], self.store.rules(), operation,
+            )
             self.git.init()
             proposal = ChangeProposal(
                 proposal_id=f"P-{uuid4().hex[:12]}", operation=operation,
@@ -75,6 +80,11 @@ class Governance:
             if revised and revised.id != proposal.after.id:
                 raise GovernanceError("Discussion cannot change the rule identifier")
             updated = revised or proposal.after.model_copy(deep=True)
+            prepared = bind_draft_targets(
+                [updated, *proposal.additional_rules], self.store.rules(), proposal.operation,
+            )
+            updated = prepared[0]
+            proposal.additional_rules = prepared[1:]
             proposal.revision += 1
             proposal.after = updated
             proposal.status = ProposalStatus.DISCUSSING
@@ -126,7 +136,9 @@ class Governance:
             "duplicate_of", "extends", "narrows", "conflicts_with",
             "exception_to", "example_of", "supersedes",
         }
-        known_ids = {rule.id for rule in self.store.rules()} | {rule.id for rule in planned}
+        known = {rule.id: rule for rule in self.store.rules()}
+        known.update({rule.id: rule for rule in planned})
+        known_ids = set(known)
         for rule in planned:
             for relation in rule.relations:
                 if relation.get("type") not in allowed:
@@ -143,6 +155,15 @@ class Governance:
                     raise GovernanceError("A rule cannot declare a relation to itself")
                 if state == "approved" and target_id not in known_ids:
                     raise GovernanceError("Approved rule relation references a missing target")
+                if state == "approved" and relation.get("type") in {"narrows", "exception_to"}:
+                    contained, strict, reason = prove_scope_subset(
+                        rule.scope, known[target_id].scope,
+                    )
+                    if not contained or not strict:
+                        raise GovernanceError(
+                            "Approved narrowing or exception relation requires a provably "
+                            "stricter scope: " + reason
+                        )
 
     def approve(self, proposal_id: str, proposal_hash: str, actor: str = "local-user") -> tuple[ChangeProposal, str]:
         with self.store.locked():
@@ -161,6 +182,10 @@ class Governance:
             planned = [proposal.after, *proposal.additional_rules]
             self._validate_feedback_use(planned, proposal.operation, proposal.feedback_ids)
             self._validate_relations(planned)
+            try:
+                validate_target_bindings(planned, self.store.rules(), proposal.operation)
+            except ValueError as exc:
+                raise GovernanceError(str(exc)) from exc
             before_map = {r.id: r for r in [proposal.before, *proposal.additional_before] if r}
             for rule in planned:
                 identifier(rule.id)

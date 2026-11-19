@@ -1,5 +1,6 @@
 import json
 import os
+import platform
 from pathlib import Path
 
 import typer
@@ -33,8 +34,13 @@ def get_store(root: Path | None = None) -> MemoryStore:
 
 @app.command()
 def doctor():
+    from paperrule.providers.diagnostics import provider_diagnostics
+
     store = get_store()
-    print({"status": "ready", "python": "3.12+", "memory": str(store.root), "llm": "not configured"})
+    typer.echo(json.dumps({
+        "status": "ready", "python": platform.python_version(),
+        "memory": str(store.root), "provider": provider_diagnostics(),
+    }, ensure_ascii=False, indent=2))
 
 
 @app.command()
@@ -125,7 +131,8 @@ def context(paper: str = typer.Option(..., "--paper"),
 @app.command()
 def check(file: Path | None = typer.Argument(None), paper: str = typer.Option(""),  # noqa: B008
           diff: bool = typer.Option(False), section: str = typer.Option(""),
-          task: str = typer.Option("")):
+          task: str = typer.Option(""), semantic: bool = typer.Option(False),
+          max_semantic_calls: int = typer.Option(8, min=1, max=32)):
     from hashlib import sha256
 
     from paperrule.review.files import MAX_FILE_BYTES, changed_documents, check_documents
@@ -154,6 +161,7 @@ def check(file: Path | None = typer.Argument(None), paper: str = typer.Option(""
         payload = check_documents(
             store, documents, profile, section=section, task=task,
             paper_commit=paper_commit, diff_mode=diff,
+            semantic=semantic, max_semantic_calls=max_semantic_calls,
         )
     except (OSError, ValueError) as exc:
         raise typer.BadParameter(str(exc)) from exc
@@ -212,7 +220,11 @@ def sync_pull():
 
 
 @app.command("app")
-def app_server(host: str = typer.Option("127.0.0.1"), port: int = typer.Option(8765)):
+def app_server(host: str = typer.Option("127.0.0.1"), port: int = typer.Option(8765),
+               open_browser: bool = typer.Option(False, "--open")):
+    from threading import Thread
+    from webbrowser import open as open_url
+
     if host not in {"127.0.0.1", "localhost", "::1"}:
         raise typer.BadParameter("PaperRule only binds localhost in this release")
     from paperrule.api.app import create_app
@@ -220,8 +232,19 @@ def app_server(host: str = typer.Option("127.0.0.1"), port: int = typer.Option(8
     application = create_app()
     browser_host = "[::1]" if host == "::1" else host
     token = application.state.owner_auth.owner_token
-    typer.echo(f"Open PaperRule: http://{browser_host}:{port}/#owner_token={token}")
-    uvicorn.run(application, host=host, port=port, reload=False, proxy_headers=False)
+    url = f"http://{browser_host}:{port}/#owner_token={token}"
+    typer.echo(f"Open PaperRule: {url}")
+    if not open_browser:
+        uvicorn.run(application, host=host, port=port, reload=False, proxy_headers=False)
+        return
+
+    class DesktopServer(uvicorn.Server):
+        async def startup(self, sockets=None):
+            await super().startup(sockets=sockets)
+            if self.started:
+                Thread(target=open_url, args=(url,), daemon=True).start()
+
+    DesktopServer(uvicorn.Config(application, host=host, port=port, proxy_headers=False)).run()
 
 
 @app.command("install-codex")

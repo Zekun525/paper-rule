@@ -214,6 +214,26 @@ class ReviewCoverage(Record):
     checked_line_count: int = Field(default=0, ge=0)
 
 
+class SemanticReviewEvidence(Record):
+    rule_id: str
+    rule_version: int = Field(ge=1)
+    file_path: str
+    file_sha256: str = Field(pattern="^[a-f0-9]{64}$")
+    provider: str
+    model: str = ""
+    prompt_version: str
+    rule_sha256: str = Field(pattern="^[a-f0-9]{64}$")
+    input_sha256: str = Field(pattern="^[a-f0-9]{64}$")
+    selection: dict[str, Any] = Field(default_factory=dict)
+    judgment: dict[str, Any] = Field(default_factory=dict)
+    findings: list[ReviewFinding] = Field(default_factory=list)
+    status: Literal["checked", "findings", "incomplete", "not_reviewed", "unavailable"]
+    checked_line_count: int = Field(default=0, ge=0)
+    human_review: Literal["pending"] = "pending"
+    formal_proof_status: Literal["not_performed"] = "not_performed"
+    error: str | None = None
+
+
 class ReviewReport(Record):
     review_id: str
     paper_id: str | None = None
@@ -229,11 +249,13 @@ class ReviewReport(Record):
     memory_rules_dirty: bool | None = None
     rule_snapshot: list[RuleRecord] = Field(default_factory=list)
     rule_snapshot_sha256: str | None = None
+    selection_notes: list[str] = Field(default_factory=list)
     rules: list[ReviewRuleVersion] = Field(default_factory=list)
     coverage: list[ReviewCoverage] = Field(default_factory=list)
     files: list[ReviewInput] = Field(default_factory=list)
     diff_mode: bool = False
     semantic_status: str = "not_reviewed"
+    semantic_evidence: list[SemanticReviewEvidence] = Field(default_factory=list)
     latex_build_status: str = "not_run"
     fixed_items: list[str] = Field(default_factory=list)
     unavailable: list[dict[str, str | int]] = Field(default_factory=list)
@@ -268,12 +290,20 @@ class PaperProfile(Record):
     citation_style: str = ""
     version: str = ""
 
+class RevisionPairReference(Record):
+    before_source_id: str
+    after_source_id: str
+    before_sha256: str = Field(pattern="^[a-f0-9]{64}$")
+    after_sha256: str = Field(pattern="^[a-f0-9]{64}$")
+
+
 class SourceRecord(Record):
     id: str
     filename: str
     sha256: str
     kind: FeedbackKind
     reviewer_id: str
+    reviewer_role: str = ""
     paper_id: str | None = None
     intent: str = ""
     date: str = ""
@@ -282,4 +312,5 @@ class SourceRecord(Record):
     warnings: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=utcnow)
     import_version: int = 1
+    revision_pair: RevisionPairReference | None = None
 

@@ -85,3 +85,84 @@ def test_concurrent_edit_cannot_be_overwritten_by_old_ai_reply(tmp_path, monkeyp
     saved = store.proposal(proposal.proposal_id)
     assert len(saved.chat) == 1
     assert saved.chat[0].user_text == "Concurrent local edit"
+
+
+
+@pytest.mark.parametrize("levels", [
+    [], [""], ["synthetic-unknown"], ["paper", "synthetic-unknown"],
+], ids=["empty", "blank", "unknown", "partly-unknown"])
+def test_ai_scope_levels_require_clarification_without_changing_authority(
+    tmp_path, monkeypatch, levels,
+):
+    monkeypatch.setenv("PAPERRULE_PROVIDER", "openai_api")
+    store, gov, seed = make_proposal(tmp_path)
+    gov.approve(seed.proposal_id, seed.proposal_hash)
+    proposal = gov.propose(RuleRecord(
+        id="G-synthetic-scope-draft", short_title="Synthetic scope draft",
+        statement="Keep the original synthetic draft",
+    ))
+    baseline_head = gov.git.head()
+    baseline_files = {
+        path.relative_to(store.root).as_posix(): path.read_bytes()
+        for path in (store.root / "rules").rglob("*.json")
+    }
+
+    def chat(self, messages, **kwargs):
+        assert "scope.levels must contain" in messages[0]["content"]
+        rule = proposal.after.model_dump(mode="json")
+        rule["statement"] = "Unvalidated synthetic change"
+        rule["scope"].update({
+            "levels": levels, "paper_ids": ["SYNTHETIC-PAPER"],
+            "sections": ["Proof"], "task_types": ["proof_rewrite"],
+        })
+        return AIResponse(
+            text=json.dumps({"reply": "Synthetic scope revision", "rule": rule}),
+            provider="openai_api", model="synthetic-test",
+        )
+
+    monkeypatch.setattr(OpenAIAPIProvider, "chat", chat)
+    updated = discuss_with_provider(gov, proposal.proposal_id, "Narrow this synthetic draft")
+    assert updated.after == proposal.after
+    assert updated.chat[-1].error == "response_schema_invalid"
+    assert updated.chat[-1].user_text == "Narrow this synthetic draft"
+    assert store.decision_count(proposal.proposal_id) == 0
+    assert updated.approved_hash is None
+    assert gov.git.head() == baseline_head
+    assert {
+        path.relative_to(store.root).as_posix(): path.read_bytes()
+        for path in (store.root / "rules").rglob("*.json")
+    } == baseline_files
+
+
+def test_ai_explicit_scope_levels_preserve_filters_in_unapproved_draft(tmp_path, monkeypatch):
+    monkeypatch.setenv("PAPERRULE_PROVIDER", "openai_api")
+    store, gov, proposal = make_proposal(tmp_path)
+    baseline_head = gov.git.head()
+    scope = {
+        "levels": ["paper", "section_task"],
+        "paper_ids": ["SYNTHETIC-PAPER"],
+        "sections": ["Proof"],
+        "task_types": ["proof_rewrite"],
+    }
+
+    def chat(self, messages, **kwargs):
+        rule = proposal.after.model_dump(mode="json")
+        rule["statement"] = "Explain synthetic key reasoning grounds."
+        rule["scope"].update(scope)
+        return AIResponse(
+            text=json.dumps({"reply": "Narrowed the synthetic draft", "rule": rule}),
+            provider="openai_api", model="synthetic-test",
+        )
+
+    monkeypatch.setattr(OpenAIAPIProvider, "chat", chat)
+    updated = discuss_with_provider(gov, proposal.proposal_id, "Narrow the paper and task")
+    assert updated.chat[-1].error is None
+    assert updated.after.statement == "Explain synthetic key reasoning grounds."
+    for name, values in scope.items():
+        assert getattr(updated.after.scope, name) == values
+    assert updated.after.scope.levels == ["paper", "section_task"]
+    assert proposal.after.scope.levels == ["global"]
+    assert updated.proposal_hash != proposal.proposal_hash
+    assert store.rules() == []
+    assert store.decision_count(proposal.proposal_id) == 0
+    assert gov.git.head() == baseline_head
