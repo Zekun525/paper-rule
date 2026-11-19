@@ -6,7 +6,7 @@ PaperRule is a Windows manuscript review workspace for independent researchers. 
 
 **Windows · Local browser · No account · No API key for the core workflow**
 
-[Quick start](#quick-start) · [Windows setup](docs/installation.md) · [简体中文](README.zh-CN.md)
+[**Download for Windows**](https://github.com/Zekun525/paper-rule/releases/latest/download/PaperRule-Windows-x64.zip) · [Quick start](#quick-start) · [Windows setup](docs/installation.md) · [简体中文](README.zh-CN.md)
 
 ![PaperRule Windows workbench showing the first action](docs/assets/windows-workbench.png)
 

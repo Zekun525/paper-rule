@@ -6,7 +6,7 @@ PaperRule 是给独立研究者用的 Windows 论文审查工具。把导师批�
 
 **Windows · 本机浏览器 · 不用注册 · 基础流程不用 API Key**
 
-[快速上手](#快速上手) · [Windows 安装](docs/installation.md) · [English](README.md)
+[**下载 Windows 版**](https://github.com/Zekun525/paper-rule/releases/latest/download/PaperRule-Windows-x64.zip) · [快速上手](#快速上手) · [Windows 安装](docs/installation.md) · [English](README.md)
 
 ![PaperRule 的工作台提示导入第一条意见](docs/assets/windows-workbench.png)
 
